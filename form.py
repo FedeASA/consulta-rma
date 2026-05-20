@@ -5,7 +5,6 @@ import urllib.parse
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from googleapiclient.discovery import build  # Requiere: pip install google-api-python-client
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Formulario RMA - ALTAVISTA SA", layout="centered")
@@ -54,13 +53,17 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- ENVIADOR DE CORREOS ---
+# --- ENVIADOR DE CORREOS CONFIGURABLE (AUDITADO) ---
 def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
     try:
         if config_section not in st.secrets:
+            st.error(f"Falta la seccion [{config_section}] en Secrets.")
             return False
+            
         smtp_user = st.secrets[config_section]["SMTP_USER"]
         smtp_password = st.secrets[config_section]["SMTP_PASSWORD"]
+        
+        # Limpieza estricta de la dirección de destino para evitar fallos de sintaxis SMTP
         destinatario_limpio = str(destinatario).strip().lower()
         
         msg = MIMEMultipart()
@@ -69,61 +72,21 @@ def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
         msg['Subject'] = asunto
         msg.attach(MIMEText(cuerpo_texto, 'plain', 'utf-8'))
         
+        # Conexión directa y cifrada mediante SSL en puerto 465
         server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15)
         server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_user, destinatario_limpio, msg.as_string())
+        
+        # Enviamos y recolectamos posibles rechazos inmediatos del servidor
+        rechazados = server.sendmail(smtp_user, destinatario_limpio, msg.as_string())
         server.quit()
+        
+        if rechazados:
+            st.error(f"Google rechazo la entrega para el destinatario: {rechazados}")
+            return False
+            
         return True
     except Exception as e:
-        st.error(f"Fallo el envío de correo en [{config_section}]: {str(e)}")
-        return False
-
-# --- ANEXAR TEXTO AL INICIO DE TU GOOGLE DOC ---
-def registrar_en_google_doc(telefono, motivo, producto, serial, falla):
-    try:
-        from google.oauth2.service_account import Credentials
-        # Carga las credenciales de la cuenta de servicio desde tus Secrets
-        creds = Credentials.from_service_account_info(st.secrets["google_creds"])
-        docs_service = build('docs', 'v1', credentials=creds)
-        
-        # ID exacto de tu archivo "RMA Aceptado" recibido por parámetro
-        DOCUMENT_ID = "1URgFPuVsIoR6LX2diAwFR5rWRKYvmmEwvQ7VXuxSnYg"
-        
-        # Construcción del bloque de texto con el formato solicitado
-        nuevo_texto = (
-            f"SOLICITUD - MENSAJE PARA CLIENTE\n"
-            f"wa.me/{telefono}\n"
-            f"---------------------------------------------------------------------------------------------------------------------------\n\n"
-            f"ALTAVISTA SA -\n"
-            f"Solicitud {motivo} cargada con éxito.\n"
-            f"cuerpo del correo:\n"
-            f"¡Su solicitud para RMA ha sido cargada con éxito!\n\n"
-            f"Producto:\n{producto}\n"
-            f"Serial:\n{serial}\n"
-            f"Falla:\n{falla}\n\n"
-            f"En breve le asignaremos su número de RMA por este mismo canal.\n\n"
-            f"Recuerde que nos puede contactar en:\n"
-            f"WhatsApp: 3433002458\n"
-            f"Email: federico@altavistasa.com.ar\n\n"
-            f"También puede consultar sus casos pendientes en el siguiente enlace:\n"
-            f"https://rma-altavista.streamlit.app/\n"
-            f"=================================================================================================================\n\n"
-        )
-        
-        # Petición a la API: index: 1 obliga a escribir al principio del documento
-        requests = [
-            {
-                'insertText': {
-                    'index': 1,
-                    'text': nuevo_texto
-                }
-            }
-        ]
-        
-        docs_service.documents().batchUpdate(documentId=DOCUMENT_ID, body={'requests': requests}).execute()
-        return True
-    except Exception as e:
-        st.error(f"Error al escribir en el Google Doc: {str(e)}")
+        st.error(f"Fallo el envio en [{config_section}] hacia ({destinatario}): {str(e)}")
         return False
 
 # --- INICIALIZACIÓN DE ESTADO ---
@@ -148,7 +111,7 @@ st.markdown("<h1 style='text-align: center;'>Solicitud de RMA / DEVOLUCION</h1>"
 st.markdown("<p style='text-align: center;'>Recuerde que el producto debe contar su embalaje / blíster o caja. NO SE ACEPTARÁN PRODUCTOS SIN CAJA NI NUMERO DE SERIE.</p>", unsafe_allow_html=True)
 st.markdown("---")
 
-# --- CUERPO DEL FORMULARIO ---
+# --- CUERPO ---
 with st.container(border=True):
     if st.session_state.enviado:
         st.success("¡Solicitud enviada con éxito! En breve le asignaremos su número de RMA.")
@@ -223,7 +186,6 @@ with st.container(border=True):
                 st.error("Por favor, complete todos los campos obligatorios para procesar la solicitud.")
             else:
                 try:
-                    # Guardamos la info para la pantalla de éxito
                     st.session_state.resumen_rma = {
                         "cliente": cliente,
                         "producto": producto,
@@ -245,38 +207,62 @@ with st.container(border=True):
                         "Ingreso": str(date.today())
                     }
                     
-                    # 1. Guardar siempre en Airtable
+                    # 1. Guardar en Airtable
                     table.create(nuevo_registro)
                     
-                    # 2. bifurcación de acciones según el método de contacto elegido
-                    if opcion_contacto == "WhatsApp":
-                        # EJECUCIÓN EXCLUSIVA: Escribe dentro del Google Doc 'RMA Aceptado'
-                        registrar_en_google_doc(
-                            telefono=telefono_val.strip(),
-                            motivo=motivo,
-                            producto=producto,
-                            serial=serial,
-                            falla=descripcion
-                        )
-                    else:
-                        # EJECUCIÓN EXCLUSIVA: Flujo por Correo Electrónico
-                        destinatario_cliente = email_val.strip().lower()
-                        asunto_interno = f"Solicitud {motivo} - Cliente: {cliente} - Producto: {producto}"
-                        cuerpo_interno = f"Nueva solicitud de {motivo}.\nContacto cliente: {destinatario_cliente}"
-                        
-                        despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_interno, cuerpo_interno)
-                        
-                        if destinatario_cliente != "":
-                            asunto_cliente = f"ALTAVISTA SA - Solicitud {motivo} cargada con éxito."
-                            cuerpo_cliente = (
-                                f"¡Su solicitud para RMA ha sido cargada con éxito!\n"
-                                f"Producto: {producto}\nSerial: {serial}\nFalla: {descripcion}"
-                            )
-                            despachar_correo("EMAIL_CLIENTE", destinatario_cliente, asunto_cliente, cuerpo_cliente)
+                    # --- 2. AUTOMATIZACIONES DE CORREO INDEPENDIENTES ---
+                    destinatario_cliente = email_val.strip().lower()
+                    contacto_interno_texto = destinatario_cliente if opcion_contacto == "Correo Electrónico" else telefono_val
                     
-                    # Cambia de estado y refresca para mostrar pantalla exitosa
-                    st.session_state.enviado = True
-                    st.rerun()
+                    # A. MENSAJE INTERNO (Para vos - Se envía siempre)
+                    asunto_interno = f"Solicitud {motivo} - Cliente: {cliente} - Producto: {producto}"
+                    cuerpo_interno = (
+                        f"Has recibido una nueva solicitud de {motivo}.\n"
+                        f"Revisa los datos en Panel RMA y acepta el caso si corresponde.\n"
+                        f"Contacto cliente: {contacto_interno_texto}"
+                    )
+                    
+                    ok_interno = despachar_correo(
+                        config_section="EMAIL_INTERNO",
+                        destinatario="federico@altavistasa.com.ar",
+                        asunto=asunto_interno,
+                        cuerpo_texto=cuerpo_interno
+                    )
+                    
+                    # B. MENSAJE PARA EL CLIENTE (Solo si seleccionó Correo)
+                    ok_cliente = True
+                    if opcion_contacto == "Correo Electrónico" and destinatario_cliente != "":
+                        asunto_cliente = f"ALTAVISTA SA - Solicitud {motivo} cargada con éxito."
+                        cuerpo_cliente = (
+                            f"¡Su solicitud para RMA ha sido cargada con éxito!\n"
+                            f"---------------------------------------------------------------------------------------------------------------------------\n"
+                            f"Producto: {producto}\n"
+                            f"Serial: {serial}\n"
+                            f"Falla: {descripcion}\n"
+                            f"---------------------------------------------------------------------------------------------------------------------------\n"
+                            f"En breve le asignaremos su número de RMA por este mismo canal.\n"
+                            f"---------------------------------------------------------------------------------------------------------------------------\n"
+                            f"Recuerde que nos puede contactar en:\n"
+                            f"WhatsApp: 3433002458\n"
+                            f"Email: federico@altavistasa.com.ar\n"
+                            f"\n"
+                            f"También puede consultar sus casos pendientes en el siguiente enlace:\n"
+                            f"https://rma-altavista.streamlit.app/"
+                        )
+                        
+                        ok_cliente = despachar_correo(
+                            config_section="EMAIL_CLIENTE",
+                            destinatario=destinatario_cliente,
+                            asunto=asunto_cliente,
+                            cuerpo_texto=cuerpo_cliente
+                        )
+                    
+                    # Evaluamos los estados de forma separada para no bloquear la experiencia de usuario
+                    if ok_interno:
+                        st.session_state.enviado = True
+                        st.rerun()
+                    else:
+                        st.error("⚠️ No se pudo procesar la alerta de correo interno. Comprobá las credenciales en los Secrets.")
                     
                 except Exception as e:
-                    st.error(f"Error al procesar la solicitud: {e}")
+                    st.error(f"Error al procesar en Airtable: {e}")
