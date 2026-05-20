@@ -375,7 +375,6 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                         email_val = orig.get('Email', '').strip().lower()
                         
                         if telefono_val != "":
-                            # --- CASO 3: WHATSAPP (SIN PARÉNTESIS) ---
                             asunto_ws = "Caso aceptado - Mensaje para el cliente"
                             cuerpo_ws = (
                                 f"RMA ACEPTADO - MENSAJE PARA CLIENTE\n"
@@ -401,7 +400,6 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                             despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_ws)
                             
                         elif email_val != "":
-                            # --- CASO 2: EMAIL (SIN PARÉNTESIS) ---
                             asunto_email = f"ALTAVISTA SA – {motivo_tramite} - Caso aceptado."
                             cuerpo_email = (
                                 f"Su solicitud para {motivo_tramite} del producto {prod_nom} ha sido aceptada.\n\n"
@@ -468,13 +466,64 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                     campos_a_revisar = ['comentario', 'diagnostico', 'Estado del RMA', 'Finalizado'] if st.session_state.rol == "admin" else ['comentario']
                     up = {k: r[k] for k in campos_a_revisar if k in r and str(r[k]) != str(orig.get(k, ""))}
                     
-                    if st.session_state.rol == "admin" and 'Finalizado' in up and up['Finalizado'] == True:
-                        if not orig.get('Finalizado', False):
-                            up['Resolucion'] = date.today().strftime('%Y-%m-%d')
+                    esta_finalizando = False
+                    if st.session_state.rol == "admin" and 'Finalizado' in r and r['Finalizado'] == True and orig.get('Finalizado') == False:
+                        esta_finalizando = True
+                        up['Resolucion'] = date.today().strftime('%Y-%m-%d')
                     
                     if st.session_state.rol == "admin" and 'Ingreso' in r:
                         val, stt = formatear_y_validar_fecha(r['Ingreso'])
                         if stt == "OK": up['Ingreso'] = val
+                    
+                    if esta_finalizando:
+                        rma_id = orig.get('autonumero', '')
+                        motivo_tramite = orig.get('Motivo del trámite', 'RMA')
+                        if not motivo_tramite: motivo_tramite = "RMA"
+                        prod_nom = orig.get('Producto', '')
+                        
+                        diag_val = r.get('diagnostico', orig.get('diagnostico', ''))
+                        estado_rma = r.get('Estado del RMA', orig.get('Estado del RMA', ''))
+                        fecha_resolucion_str = date.today().strftime('%d/%m/%Y')
+                        
+                        telefono_val = orig.get('Telefono', '').strip()
+                        email_val = orig.get('Email', '').strip().lower()
+                        
+                        if telefono_val != "":
+                            # --- CASO WHATSAPP (FINALIZADO - SIN PARÉNTESIS) ---
+                            asunto_ws = "Caso finalizado - Mensaje para el cliente"
+                            cuerpo_ws = (
+                                f"RMA FINALIZADO - MENSAJE PARA CLIENTE\n"
+                                f"wa.me/{telefono_val}\n"
+                                f"---------------------------------------------------------------------------------------------------------------------------\n\n"
+                                f"Su número de caso #{rma_id} correspondiente al producto {prod_nom} ha finalizado.\n\n"
+                                f"--------------------------------------------------\n\n"
+                                f"Diagnóstico: {diag_val}\n"
+                                f"Resolución: {estado_rma}\n"
+                                f"Fecha resolución: {fecha_resolucion_str}\n\n"
+                                f"--------------------------------------------------\n\n"
+                                f"Le recomendamos contactarnos para coordinar el retiro del producto, o la gestión de la nota de crédito según corresponda.\n\n"
+                                f"Servicio Técnico: 3433002458\n"
+                                f"Ventas: 3434469399\n"
+                                f"Email: federico@altavistasa.com.ar"
+                            )
+                            despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_ws)
+                            
+                        elif email_val != "":
+                            # --- CASO EMAIL (FINALIZADO - SIN PARÉNTESIS) ---
+                            asunto_email = f"ALTAVISTA SA - Su caso de {motivo_tramite} número: {rma_id} ha sido resuelto."
+                            cuerpo_email = (
+                                f"Su número de caso #{rma_id} correspondiente al producto {prod_nom} ha finalizado.\n\n"
+                                f"--------------------------------------------------\n\n"
+                                f"Diagnóstico: {diag_val}\n"
+                                f"Resolución: {estado_rma}\n"
+                                f"Fecha resolución: {fecha_resolucion_str}\n\n"
+                                f"--------------------------------------------------\n\n"
+                                f"Le recomendamos contactarnos para coordinar el retiro del producto, o la gestión de la nota de crédito según corresponda.\n\n"
+                                f"Servicio Técnico: 3433002458\n"
+                                f"Ventas: 3434469399\n"
+                                f"Email: federico@altavistasa.com.ar"
+                            )
+                            despachar_correo("EMAIL_CLIENTE", email_val, asunto_email, cuerpo_email)
                     
                     if up: table.update(r['id_interno'], up)
                 cargar_todos_los_datos.clear(); st.rerun()
