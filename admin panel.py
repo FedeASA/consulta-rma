@@ -3,6 +3,9 @@ from pyairtable import Api
 import pandas as pd
 from datetime import datetime, date
 import io
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Panel RMA", layout="wide")
@@ -131,6 +134,39 @@ except Exception as e:
     st.error(f"Error en credenciales: {e}")
     st.stop()
 
+# --- ENVIADOR DE CORREOS CONFIGURABLE ---
+def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
+    try:
+        if config_section not in st.secrets:
+            st.error(f"Falta la seccion [{config_section}] en Secrets.")
+            return False
+            
+        smtp_user = st.secrets[config_section]["SMTP_USER"]
+        smtp_password = st.secrets[config_section]["SMTP_PASSWORD"]
+        
+        destinatario_limpio = str(destinatario).strip().lower()
+        
+        msg = MIMEMultipart()
+        msg['From'] = smtp_user
+        msg['To'] = destinatario_limpio
+        msg['Subject'] = asunto
+        msg.attach(MIMEText(cuerpo_texto, 'plain', 'utf-8'))
+        
+        server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15)
+        server.login(smtp_user, smtp_password)
+        
+        rechazados = server.sendmail(smtp_user, destinatario_limpio, msg.as_string())
+        server.quit()
+        
+        if rechazados:
+            st.error(f"Google rechazo la entrega para el destinatario: {rechazados}")
+            return False
+            
+        return True
+    except Exception as e:
+        st.error(f"Fallo el envio en [{config_section}]向 ({destinatario}): {str(e)}")
+        return False
+
 def estilo_filas(row):
     estado = str(row.get('Estado del RMA', "")).upper()
     verde, naranja, celeste, rojo, gris = 'background-color: #28a745; color: white;', 'background-color: #fd7e14; color: black;', 'background-color: #17a2b8; color: white;', 'background-color: #dc3545; color: white;', 'background-color: #6c757d; color: white;'
@@ -194,13 +230,13 @@ if st.session_state.rol == "admin":
         """, unsafe_allow_html=True)
     with c5: st.link_button("📊 Excel Viejo", "https://docs.google.com/spreadsheets/d/17zp1kEZhVBw1Ul3HkoDZhyQ2IYthjNGS", use_container_width=True)
 
-# --- BOTONES DE ACCIÓN SUPERIORES (CORREGIDO SIN PANTALLA EN NEGRO) ---
+# --- BOTONES DE ACCIÓN SUPERIORES ---
 col_rep1, col_btn_refresh, col_rep2 = st.columns([1, 1, 3])
 with col_rep1:
     btn_reporte = st.button("📊 Reporte", use_container_width=True)
 with col_btn_refresh:
     if st.button("🔄 Actualizar Datos", use_container_width=True):
-        cargar_todos_los_datos.clear()  # Borra solo el caché de la base de datos sin romper la sesión de usuario
+        cargar_todos_los_datos.clear()
         st.rerun()
 
 if btn_reporte:
@@ -272,7 +308,8 @@ if df_all.empty:
     st.warning("No hay datos para mostrar.")
     st.stop()
 
-columnas_requeridas = ['Aceptado', 'Finalizado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero']
+# --- VERIFICACIÓN Y COMPATIBILIDAD DE COLUMNAS EXTRA ---
+columnas_requeridas = ['Aceptado', 'Finalizado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite']
 for col in columnas_requeridas:
     if col not in df_all.columns: 
         df_all[col] = False if col in ['Aceptado', 'Finalizado'] else ""
@@ -280,7 +317,7 @@ for col in columnas_requeridas:
         if col in ['Aceptado', 'Finalizado']:
             df_all[col] = df_all[col].apply(lambda x: True if x in [True, 1, "True", "true"] else False)
 
-for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero']:
+for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite']:
     if col_txt in df_all.columns:
         df_all[col_txt] = df_all[col_txt].fillna("").apply(lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else str(x))
         df_all[col_txt] = df_all[col_txt].apply(lambda x: "" if str(x).strip() in ["None", "none", "nan", "NaN", ""] else str(x).strip())
@@ -311,11 +348,92 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
             if st.form_submit_button("GUARDAR ENTRADAS", disabled=(st.session_state.rol != "admin")):
                 for _, r in ed1.iterrows():
                     orig = df1[df1['id_interno'] == r['id_interno']].iloc[0]
+                    
+                    # Detectar si se está modificando el estado del checkbox "Aceptado"
+                    esta_aceptando = False
+                    if 'Aceptado' in r and r['Aceptado'] == True and orig.get('Aceptado') == False:
+                        esta_aceptando = True
+                    
                     up = {k: r[k] for k in ['Aceptado','Cliente','Producto'] if k in r and str(r[k]) != str(orig.get(k,""))}
                     if 'Compra' in r:
                         f, e = formatear_y_validar_fecha(r['Compra'])
                         if e == "OK" and f: up['Compra'] = f
-                    if up: table.update(r['id_interno'], up)
+                    
+                    # Si se detectó la aceptación, ejecutamos las automatizaciones correspondientes antes de actualizar
+                    if esta_aceptando:
+                        # Extraemos las variables dinámicas del registro original
+                        cliente_nom = orig.get('Cliente', '')
+                        prod_nom = orig.get('Producto', '')
+                        serial_num = orig.get('Serial', '')
+                        falla_desc = orig.get('Falla', '')
+                        fecha_compra_str = formatear_para_leer(orig.get('Compra', ''))
+                        motivo_tramite = orig.get('Motivo del trámite', 'RMA')
+                        if not motivo_tramite: motivo_tramite = "RMA"
+                        
+                        # Manejo del autonúmero e ID Cliente
+                        rma_id = orig.get('autonumero', '')
+                        cliente_id = orig.get('Cliente', '') # Código de cliente / Nombre
+                        estado_rma = "PENDIENTE"
+                        
+                        # Determinar método de contacto basándonos en si tiene Teléfono o Email cargado
+                        telefono_val = orig.get('Telefono', '').strip()
+                        email_val = orig.get('Email', '').strip().lower()
+                        
+                        # Si tiene teléfono asumimos WhatsApp, sino Email
+                        if telefono_val != "":
+                            # --- CASO 3: EL MÉTODO DE CONTACTO ES WHATSAPP ---
+                            asunto_ws = "Caso aceptado - Mensaje para el cliente"
+                            cuerpo_ws = (
+                                f"RMA ACEPTADO - MENSAJE PARA CLIENTE\n"
+                                f"wa.me/{telefono_val}\n"
+                                f"---------------------------------------------------------------------------------------------------------------------------\n"
+                                f"Su solicitud para {motivo_tramite} del producto {prod_nom} ha sido aceptada.\n\n"
+                                f"Se le asignó el siguiente número de caso: ({rma_id})\n"
+                                f"Su código de cliente es: ({cliente_id})\n\n"
+                                f"--------------------------------------------------\n\n"
+                                f"Detalle del caso:\n"
+                                f"Producto: {prod_nom}\n"
+                                f"Serial: {serial_num}\n"
+                                f"Falla: {falla_desc}\n"
+                                f"Fecha Compra: {fecha_compra_str}\n"
+                                f"Estado del caso: {estado_rma}\n\n"
+                                f"--------------------------------------------------\n\n"
+                                f"Le recomendamos anotar su código de usuario para poder consultar el estado de sus casos en el siguiente enlace https://rma-altavista.streamlit.app/\n\n"
+                                f"Cuando tengamos novedades le notificaremos por este canal.\n\n"
+                                f"Recuerde que nos puede contactar en:\n"
+                                f"WhatsApp: 3433002458\n"
+                                f"Email: federico@altavistasa.com.ar"
+                            )
+                            # Se despacha desde EMAIL_INTERNO hacia federico@altavistasa.com.ar
+                            despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_ws)
+                            
+                        elif email_val != "":
+                            # --- CASO 2: EL MÉTODO DE CONTACTO ES EMAIL ---
+                            asunto_email = f"ALTAVISTA SA – {motivo_tramite} - Caso aceptado."
+                            cuerpo_email = (
+                                f"Su solicitud para {motivo_tramite} del producto {prod_nom} ha sido aceptada.\n\n"
+                                f"Se le asignó el siguiente número de caso: ({rma_id})\n"
+                                f"Su código de cliente es: ({cliente_id})\n\n"
+                                f"--------------------------------------------------\n\n"
+                                f"Detalle del caso:\n"
+                                f"Producto: {prod_nom}\n"
+                                f"Serial: {serial_num}\n"
+                                f"Falla: {falla_desc}\n"
+                                f"Fecha Compra: {fecha_compra_str}\n"
+                                f"Estado del caso: {estado_rma}\n\n"
+                                f"--------------------------------------------------\n\n"
+                                f"Le recomendamos anotar su código de usuario para poder consultar el estado de sus casos en el siguiente enlace https://rma-altavista.streamlit.app/\n\n"
+                                f"Cuando tengamos novedades le notificaremos por este canal.\n\n"
+                                f"Recuerde que nos puede contactar en:\n"
+                                f"WhatsApp: 3433002458\n"
+                                f"Email: federico@altavistasa.com.ar"
+                            )
+                            # Se despacha desde EMAIL_CLIENTE hacia el correo del cliente
+                            despachar_correo("EMAIL_CLIENTE", email_val, asunto_email, cuerpo_email)
+                    
+                    if up: 
+                        table.update(r['id_interno'], up)
+                        
                 cargar_todos_los_datos.clear(); st.rerun()
     else:
         st.info("No hay pendientes.")
