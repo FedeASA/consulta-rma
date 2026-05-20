@@ -1,10 +1,3 @@
-¡Tenés razón, se me escaparon esos paréntesis ahí! Vamos a limpiarlos por completo tanto en la plantilla que va directo al cliente por Email como en la que te llega a vos unificada para despachar por WhatsApp.
-
-Tal como me pediste, **no toqué absolutamente nada más**, solo removí los paréntesis de las variables `rma_id` y `cliente_id` en ambos bloques de texto.
-
-Acá tenés el código de tu **`admin panel.py`** corregido y limpio:
-
-```python
 import streamlit as st
 from pyairtable import Api
 import pandas as pd
@@ -517,5 +510,3 @@ with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
                     up = {k: r[k] for k in ['comentario'] if str(r[k]) != str(orig.get(k, ""))}
                     if up: table.update(r['id_interno'], up)
                 cargar_todos_los_datos.clear(); st.rerun()
-
-```
