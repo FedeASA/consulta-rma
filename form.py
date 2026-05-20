@@ -53,29 +53,53 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- ENVIADOR DE CORREOS CONFIGURABLE (OPTIMIZADO CON SSL SEGURO) ---
+# --- ENVIADOR DE CORREOS CONFIGURABLE CON DIAGNÓSTICO EN PANTALLA ---
 def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
     try:
-        # Forzamos servidor Gmail por defecto si no se define, usando puerto 465 directo (SSL)
+        # Etapa 1: Verificar lectura de Secrets
+        if config_section not in st.secrets:
+            st.error(f"🔍 [DIAGNÓSTICO] No existe la sección [{config_section}] en los Secrets de Streamlit.")
+            return False
+            
         smtp_server = st.secrets[config_section].get("SMTP_SERVER", "smtp.gmail.com")
+        
+        if "SMTP_USER" not in st.secrets[config_section] or "SMTP_PASSWORD" not in st.secrets[config_section]:
+            st.error(f"🔍 [DIAGNÓSTICO] Falta definir SMTP_USER o SMTP_PASSWORD dentro de [{config_section}].")
+            return False
+            
         smtp_user = st.secrets[config_section]["SMTP_USER"]
         smtp_password = st.secrets[config_section]["SMTP_PASSWORD"]
         
+        # Etapa 2: Construcción del paquete del mensaje
         msg = MIMEMultipart()
         msg['From'] = smtp_user
         msg['To'] = destinatario
         msg['Subject'] = asunto
         msg.attach(MIMEText(cuerpo_texto, 'plain', 'utf-8'))
         
-        # Conexión cifrada SSL directa de extremo a extremo
-        server = smtplib.SMTP_SSL(smtp_server, 465)
+        # Etapa 3: Intento de conexión y autenticación con Google
+        st.info(f"🔄 Intento de conexión SSL a {smtp_server} para el bloque [{config_section}]...")
+        server = smtplib.SMTP_SSL(smtp_server, 465, timeout=10)
+        
+        st.info(f"🔄 Intentando inicio de sesión como: {smtp_user}...")
         server.login(smtp_user, smtp_password)
+        
+        st.info(f"🔄 Despachando correo electrónico hacia: {destinatario}...")
         server.sendmail(smtp_user, destinatario, msg.as_string())
         server.quit()
+        
+        st.toast(f"✅ Correo de {config_section} enviado con éxito.", icon="📧")
         return True
+        
+    except smtplib.SMTPAuthenticationError:
+        st.error(f"❌ [ERROR DE AUTENTICACIÓN en {config_section}]: Google rechazó la clave. Comprobá que estés usando la 'Contraseña de Aplicación' de 16 letras y NO tu contraseña normal.")
+        return False
+    except smtplib.SMTPConnectError:
+        st.error(f"❌ [ERROR DE CONEXIÓN en {config_section}]: No se pudo establecer conexión con {smtp_server} en el puerto 465. Puede ser un bloqueo de firewall o red.")
+        return False
     except Exception as e:
-        # Imprime el error real en los logs de la consola para diagnóstico técnico
-        print(f"Error crítico en sección {config_section}: {e}")
+        # Captura cualquier otro error técnico imprevisto
+        st.error(f"❌ [ERROR INESPERADO en {config_section}]: {str(e)}")
         return False
 
 # --- INICIALIZACIÓN DE ESTADO ---
@@ -174,79 +198,84 @@ with st.container(border=True):
             if not cliente or not producto or not serial or not contacto_lleno:
                 st.error("Por favor, complete todos los campos obligatorios para procesar la solicitud.")
             else:
-                with st.spinner("Procesando solicitud y enviando correos de notificación..."):
-                    try:
-                        st.session_state.resumen_rma = {
-                            "cliente": cliente,
-                            "producto": producto,
-                            "serial": serial,
-                            "falla": descripcion
-                        }
-                        
-                        nuevo_registro = {
-                            "Cliente": cliente,
-                            "Producto": producto,
-                            "Serial": serial,
-                            "Compra": str(fecha_compra),
-                            "Motivo del trámite": motivo, 
-                            "Falla": descripcion,        
-                            "diagnostico": "",           
-                            "Telefono": telefono_val,      
-                            "Email": email_val,            
-                            "Estado del RMA": "PENDIENTE",
-                            "Ingreso": str(date.today())
-                        }
-                        
-                        # 1. Guardar en Airtable
-                        table.create(nuevo_registro)
-                        
-                        # --- 2. AUTOMATIZACIONES DE CORREO (ILIMITADAS VÍA SSL DIRECTO) ---
-                        contacto_actual = email_val if opcion_contacto == "Correo Electrónico" else telefono_val
-                        
-                        # A. MENSAJE INTERNO (Para vos)
-                        asunto_interno = f"Solicitud {motivo} - Cliente: {cliente} - Producto: {producto}"
-                        cuerpo_interno = (
-                            f"Has recibido una nueva solicitud de {motivo}.\n"
-                            f"Revisa los datos en Panel RMA y acepta el caso si corresponde.\n"
-                            f"Contacto cliente: {contacto_actual}"
+                # Quitamos momentáneamente st.spinner para que no tape los mensajes informativos
+                try:
+                    st.session_state.resumen_rma = {
+                        "cliente": cliente,
+                        "producto": producto,
+                        "serial": serial,
+                        "falla": descripcion
+                    }
+                    
+                    nuevo_registro = {
+                        "Cliente": cliente,
+                        "Producto": producto,
+                        "Serial": serial,
+                        "Compra": str(fecha_compra),
+                        "Motivo del trámite": motivo, 
+                        "Falla": descripcion,        
+                        "diagnostico": "",           
+                        "Telefono": telefono_val,      
+                        "Email": email_val,            
+                        "Estado del RMA": "PENDIENTE",
+                        "Ingreso": str(date.today())
+                    }
+                    
+                    # 1. Guardar en Airtable
+                    table.create(nuevo_registro)
+                    
+                    # --- 2. AUTOMATIZACIONES DE CORREO CON SEGUIMIENTO ACTIVO ---
+                    contacto_actual = email_val if opcion_contacto == "Correo Electrónico" else telefono_val
+                    
+                    # A. MENSAJE INTERNO (Para vos)
+                    asunto_interno = f"Solicitud {motivo} - Cliente: {cliente} - Producto: {producto}"
+                    cuerpo_interno = (
+                        f"Has recibido una nueva solicitud de {motivo}.\n"
+                        f"Revisa los datos en Panel RMA y acepta el caso si corresponde.\n"
+                        f"Contacto cliente: {contacto_actual}"
+                    )
+                    
+                    ok_interno = despachar_correo(
+                        config_section="EMAIL_INTERNO",
+                        destinatario="federico@altavistasa.com.ar",
+                        asunto=asunto_interno,
+                        cuerpo_texto=cuerpo_interno
+                    )
+                    
+                    # B. MENSAJE PARA EL CLIENTE
+                    ok_cliente = True
+                    if opcion_contacto == "Correo Electrónico" and email_val.strip() != "":
+                        asunto_cliente = f"ALTAVISTA SA - Solicitud {motivo} cargada con éxito."
+                        cuerpo_cliente = (
+                            f"¡Su solicitud para RMA ha sido cargada con éxito!\n"
+                            f"---------------------------------------------------------------------------------------------------------------------------\n"
+                            f"Producto: {producto}\n"
+                            f"Serial: {serial}\n"
+                            f"Falla: {descripcion}\n"
+                            f"---------------------------------------------------------------------------------------------------------------------------\n"
+                            f"En breve le asignaremos su número de RMA por este mismo canal.\n"
+                            f"---------------------------------------------------------------------------------------------------------------------------\n"
+                            f"Recuerde que nos puede contactar en:\n"
+                            f"WhatsApp: 3433002458\n"
+                            f"Email: federico@altavistasa.com.ar\n"
+                            f"\n"
+                            f"También puede consultar sus casos pendientes en el siguiente enlace:\n"
+                            f"https://rma-altavista.streamlit.app/"
                         )
                         
-                        despachar_correo(
-                            config_section="EMAIL_INTERNO",
-                            destinatario="federico@altavistasa.com.ar",
-                            asunto=asunto_interno,
-                            cuerpo_texto=cuerpo_interno
+                        ok_cliente = despachar_correo(
+                            config_section="EMAIL_CLIENTE",
+                            destinatario=email_val.strip(),
+                            asunto=asunto_cliente,
+                            cuerpo_texto=cuerpo_cliente
                         )
-                        
-                        # B. MENSAJE PARA EL CLIENTE (Solo si seleccionó Correo Electrónico)
-                        if opcion_contacto == "Correo Electrónico" and email_val.strip() != "":
-                            asunto_cliente = f"ALTAVISTA SA - Solicitud {motivo} cargada con éxito."
-                            cuerpo_cliente = (
-                                f"¡Su solicitud para RMA ha sido cargada con éxito!\n"
-                                f"---------------------------------------------------------------------------------------------------------------------------\n"
-                                f"Producto: {producto}\n"
-                                f"Serial: {serial}\n"
-                                f"Falla: {descripcion}\n"
-                                f"---------------------------------------------------------------------------------------------------------------------------\n"
-                                f"En breve le asignaremos su número de RMA por este mismo canal.\n"
-                                f"---------------------------------------------------------------------------------------------------------------------------\n"
-                                f"Recuerde que nos puede contactar en:\n"
-                                f"WhatsApp: 3433002458\n"
-                                f"Email: federico@altavistasa.com.ar\n"
-                                f"\n"
-                                f"También puede consultar sus casos pendientes en el siguiente enlace:\n"
-                                f"https://rma-altavista.streamlit.app/"
-                            )
-                            
-                            despachar_correo(
-                                config_section="EMAIL_CLIENTE",
-                                destinatario=email_val.strip(),
-                                asunto=asunto_cliente,
-                                cuerpo_texto=cuerpo_cliente
-                            )
-                        
+                    
+                    # Solo avanza a la pantalla de éxito si ambos correos funcionaron (o el del cliente no correspondía)
+                    if ok_interno and ok_cliente:
                         st.session_state.enviado = True
                         st.rerun()
-                        
-                    except Exception as e:
-                        st.error(f"Error al procesar la solicitud: {e}")
+                    else:
+                        st.warning("⚠️ El registro en Airtable se creó, pero las notificaciones fallaron. Revisa los mensajes de error de arriba.")
+                    
+                except Exception as e:
+                    st.error(f"Error al procesar la solicitud en Airtable: {e}")
