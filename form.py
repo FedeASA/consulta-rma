@@ -53,53 +53,39 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- ENVIADOR DE CORREOS CONFIGURABLE CON DIAGNÓSTICO EN PANTALLA ---
+# --- ENVIADOR DE CORREOS CONFIGURABLE (AUDITADO) ---
 def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
     try:
-        # Etapa 1: Verificar lectura de Secrets
         if config_section not in st.secrets:
-            st.error(f"🔍 [DIAGNÓSTICO] No existe la sección [{config_section}] en los Secrets de Streamlit.")
-            return False
-            
-        smtp_server = st.secrets[config_section].get("SMTP_SERVER", "smtp.gmail.com")
-        
-        if "SMTP_USER" not in st.secrets[config_section] or "SMTP_PASSWORD" not in st.secrets[config_section]:
-            st.error(f"🔍 [DIAGNÓSTICO] Falta definir SMTP_USER o SMTP_PASSWORD dentro de [{config_section}].")
+            st.error(f"Falta la seccion [{config_section}] en Secrets.")
             return False
             
         smtp_user = st.secrets[config_section]["SMTP_USER"]
         smtp_password = st.secrets[config_section]["SMTP_PASSWORD"]
         
-        # Etapa 2: Construcción del paquete del mensaje
         msg = MIMEMultipart()
+        # Forzamos que el remitente visual sea exactamente el usuario autenticado
         msg['From'] = smtp_user
         msg['To'] = destinatario
         msg['Subject'] = asunto
         msg.attach(MIMEText(cuerpo_texto, 'plain', 'utf-8'))
         
-        # Etapa 3: Intento de conexión y autenticación con Google
-        st.info(f"🔄 Intento de conexión SSL a {smtp_server} para el bloque [{config_section}]...")
-        server = smtplib.SMTP_SSL(smtp_server, 465, timeout=10)
-        
-        st.info(f"🔄 Intentando inicio de sesión como: {smtp_user}...")
+        # Conexión cifrada nativa
+        server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15)
         server.login(smtp_user, smtp_password)
         
-        st.info(f"🔄 Despachando correo electrónico hacia: {destinatario}...")
-        server.sendmail(smtp_user, destinatario, msg.as_string())
+        # Guardamos la respuesta del servidor de Google
+        resultado = server.sendmail(smtp_user, destinatario, msg.as_string())
         server.quit()
         
-        st.toast(f"✅ Correo de {config_section} enviado con éxito.", icon="📧")
+        # Si resultado no está vacío, significa que hubo destinatarios rechazados
+        if resultado:
+            st.error(f"Google rechazo la entrega para: {resultado}")
+            return False
+            
         return True
-        
-    except smtplib.SMTPAuthenticationError:
-        st.error(f"❌ [ERROR DE AUTENTICACIÓN en {config_section}]: Google rechazó la clave. Comprobá que estés usando la 'Contraseña de Aplicación' de 16 letras y NO tu contraseña normal.")
-        return False
-    except smtplib.SMTPConnectError:
-        st.error(f"❌ [ERROR DE CONEXIÓN en {config_section}]: No se pudo establecer conexión con {smtp_server} en el puerto 465. Puede ser un bloqueo de firewall o red.")
-        return False
     except Exception as e:
-        # Captura cualquier otro error técnico imprevisto
-        st.error(f"❌ [ERROR INESPERADO en {config_section}]: {str(e)}")
+        st.error(f"Fallo el envio en [{config_section}]: {str(e)}")
         return False
 
 # --- INICIALIZACIÓN DE ESTADO ---
@@ -153,7 +139,7 @@ with st.container(border=True):
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                         <path d="M12.004 2c-5.51 0-9.99 4.49-9.99 10 0 1.91.54 3.7 1.48 5.24l-1.4 5.1 5.23-1.37c1.48.81 3.16 1.27 4.93 1.27 5.51 0 10-4.49 10-10s-4.49-10-10-10zm4.87 14.15c-.21.58-1.22 1.13-1.68 1.19-.46.06-.91.08-2.84-.68-2.47-.97-4.05-3.48-4.17-3.64-.12-.17-1.04-1.38-1.04-2.63 0-1.25.65-1.87.88-2.12.23-.25.5-.31.67-.31.17 0 .33.01.48.01.16.01.37-.06.57.42.21.5.73 1.77.79 1.9.06.12.1.27.02.44-.08.16-.12.27-.25.42-.12.15-.26.33-.37.45-.12.12-.25.26-.11.5.15.24.66 1.09 1.42 1.76.98.86 1.8 1.13 2.06 1.25.25.13.4.1.55-.07.15-.17.65-.75.82-.1.17.15.34.42.92.71.58.29 3.46 1.71 3.54 1.75.08.04.13.19.05.42z"/>
                     </svg>
-                    Contactanos
+                    Contactanos﻿
                 </a>
                 """, unsafe_allow_html=True)
             
@@ -198,7 +184,6 @@ with st.container(border=True):
             if not cliente or not producto or not serial or not contacto_lleno:
                 st.error("Por favor, complete todos los campos obligatorios para procesar la solicitud.")
             else:
-                # Quitamos momentáneamente st.spinner para que no tape los mensajes informativos
                 try:
                     st.session_state.resumen_rma = {
                         "cliente": cliente,
@@ -224,7 +209,7 @@ with st.container(border=True):
                     # 1. Guardar en Airtable
                     table.create(nuevo_registro)
                     
-                    # --- 2. AUTOMATIZACIONES DE CORREO CON SEGUIMIENTO ACTIVO ---
+                    # --- 2. AUTOMATIZACIONES DE CORREO ---
                     contacto_actual = email_val if opcion_contacto == "Correo Electrónico" else telefono_val
                     
                     # A. MENSAJE INTERNO (Para vos)
@@ -270,12 +255,12 @@ with st.container(border=True):
                             cuerpo_texto=cuerpo_cliente
                         )
                     
-                    # Solo avanza a la pantalla de éxito si ambos correos funcionaron (o el del cliente no correspondía)
+                    # Bloqueo explícito si alguno falla
                     if ok_interno and ok_cliente:
                         st.session_state.enviado = True
                         st.rerun()
                     else:
-                        st.warning("⚠️ El registro en Airtable se creó, pero las notificaciones fallaron. Revisa los mensajes de error de arriba.")
+                        st.error("⚠️ El flujo se detuvo porque uno de los correos no pudo salir. Revisa los mensajes de error mostrados.")
                     
                 except Exception as e:
-                    st.error(f"Error al procesar la solicitud en Airtable: {e}")
+                    st.error(f"Error al procesar en Airtable: {e}")
