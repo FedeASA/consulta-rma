@@ -63,29 +63,30 @@ def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
         smtp_user = st.secrets[config_section]["SMTP_USER"]
         smtp_password = st.secrets[config_section]["SMTP_PASSWORD"]
         
+        # Limpieza estricta de la dirección de destino para evitar fallos de sintaxis SMTP
+        destinatario_limpio = str(destinatario).strip().lower()
+        
         msg = MIMEMultipart()
-        # Forzamos que el remitente visual sea exactamente el usuario autenticado
         msg['From'] = smtp_user
-        msg['To'] = destinatario
+        msg['To'] = destinatario_limpio
         msg['Subject'] = asunto
         msg.attach(MIMEText(cuerpo_texto, 'plain', 'utf-8'))
         
-        # Conexión cifrada nativa
+        # Conexión directa y cifrada mediante SSL en puerto 465
         server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15)
         server.login(smtp_user, smtp_password)
         
-        # Guardamos la respuesta del servidor de Google
-        resultado = server.sendmail(smtp_user, destinatario, msg.as_string())
+        # Enviamos y recolectamos posibles rechazos inmediatos del servidor
+        rechazados = server.sendmail(smtp_user, destinatario_limpio, msg.as_string())
         server.quit()
         
-        # Si resultado no está vacío, significa que hubo destinatarios rechazados
-        if resultado:
-            st.error(f"Google rechazo la entrega para: {resultado}")
+        if rechazados:
+            st.error(f"Google rechazo la entrega para el destinatario: {rechazados}")
             return False
             
         return True
     except Exception as e:
-        st.error(f"Fallo el envio en [{config_section}]: {str(e)}")
+        st.error(f"Fallo el envio en [{config_section}] hacia ({destinatario}): {str(e)}")
         return False
 
 # --- INICIALIZACIÓN DE ESTADO ---
@@ -139,7 +140,7 @@ with st.container(border=True):
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                         <path d="M12.004 2c-5.51 0-9.99 4.49-9.99 10 0 1.91.54 3.7 1.48 5.24l-1.4 5.1 5.23-1.37c1.48.81 3.16 1.27 4.93 1.27 5.51 0 10-4.49 10-10s-4.49-10-10-10zm4.87 14.15c-.21.58-1.22 1.13-1.68 1.19-.46.06-.91.08-2.84-.68-2.47-.97-4.05-3.48-4.17-3.64-.12-.17-1.04-1.38-1.04-2.63 0-1.25.65-1.87.88-2.12.23-.25.5-.31.67-.31.17 0 .33.01.48.01.16.01.37-.06.57.42.21.5.73 1.77.79 1.9.06.12.1.27.02.44-.08.16-.12.27-.25.42-.12.15-.26.33-.37.45-.12.12-.25.26-.11.5.15.24.66 1.09 1.42 1.76.98.86 1.8 1.13 2.06 1.25.25.13.4.1.55-.07.15-.17.65-.75.82-.1.17.15.34.42.92.71.58.29 3.46 1.71 3.54 1.75.08.04.13.19.05.42z"/>
                     </svg>
-                    Contactanos﻿
+                    Contactanos
                 </a>
                 """, unsafe_allow_html=True)
             
@@ -201,7 +202,7 @@ with st.container(border=True):
                         "Falla": descripcion,        
                         "diagnostico": "",           
                         "Telefono": telefono_val,      
-                        "Email": email_val,            
+                        "Email": email_val.strip().lower() if opcion_contacto == "Correo Electrónico" else "",            
                         "Estado del RMA": "PENDIENTE",
                         "Ingreso": str(date.today())
                     }
@@ -209,15 +210,16 @@ with st.container(border=True):
                     # 1. Guardar en Airtable
                     table.create(nuevo_registro)
                     
-                    # --- 2. AUTOMATIZACIONES DE CORREO ---
-                    contacto_actual = email_val if opcion_contacto == "Correo Electrónico" else telefono_val
+                    # --- 2. AUTOMATIZACIONES DE CORREO INDEPENDIENTES ---
+                    destinatario_cliente = email_val.strip().lower()
+                    contacto_interno_texto = destinatario_cliente if opcion_contacto == "Correo Electrónico" else telefono_val
                     
-                    # A. MENSAJE INTERNO (Para vos)
+                    # A. MENSAJE INTERNO (Para vos - Se envía siempre)
                     asunto_interno = f"Solicitud {motivo} - Cliente: {cliente} - Producto: {producto}"
                     cuerpo_interno = (
                         f"Has recibido una nueva solicitud de {motivo}.\n"
                         f"Revisa los datos en Panel RMA y acepta el caso si corresponde.\n"
-                        f"Contacto cliente: {contacto_actual}"
+                        f"Contacto cliente: {contacto_interno_texto}"
                     )
                     
                     ok_interno = despachar_correo(
@@ -227,9 +229,9 @@ with st.container(border=True):
                         cuerpo_texto=cuerpo_interno
                     )
                     
-                    # B. MENSAJE PARA EL CLIENTE
+                    # B. MENSAJE PARA EL CLIENTE (Solo si seleccionó Correo)
                     ok_cliente = True
-                    if opcion_contacto == "Correo Electrónico" and email_val.strip() != "":
+                    if opcion_contacto == "Correo Electrónico" and destinatario_cliente != "":
                         asunto_cliente = f"ALTAVISTA SA - Solicitud {motivo} cargada con éxito."
                         cuerpo_cliente = (
                             f"¡Su solicitud para RMA ha sido cargada con éxito!\n"
@@ -250,17 +252,17 @@ with st.container(border=True):
                         
                         ok_cliente = despachar_correo(
                             config_section="EMAIL_CLIENTE",
-                            destinatario=email_val.strip(),
+                            destinatario=destinatario_cliente,
                             asunto=asunto_cliente,
                             cuerpo_texto=cuerpo_cliente
                         )
                     
-                    # Bloqueo explícito si alguno falla
-                    if ok_interno and ok_cliente:
+                    # Evaluamos los estados de forma separada para no bloquear la experiencia de usuario
+                    if ok_interno:
                         st.session_state.enviado = True
                         st.rerun()
                     else:
-                        st.error("⚠️ El flujo se detuvo porque uno de los correos no pudo salir. Revisa los mensajes de error mostrados.")
+                        st.error("⚠️ No se pudo procesar la alerta de correo interno. Comprobá las credenciales en los Secrets.")
                     
                 except Exception as e:
                     st.error(f"Error al procesar en Airtable: {e}")
