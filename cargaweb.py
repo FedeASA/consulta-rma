@@ -63,13 +63,14 @@ def obtener_fecha_ordenamiento(record):
 st.markdown("<h1 style='text-align: center;'>RMA ALTAVISTA SA</h1>", unsafe_allow_html=True)
 
 # --- BARRA DE BÚSQUEDA ---
-entrada_usuario = st.text_input("Ingrese Código de Cliente o Número de RMA:", value="").strip()
+entrada_usuario = st.text_input("Ingrese Código de Cliente o Número de Caso:", value="").strip()
 busqueda = entrada_usuario.upper() 
 
 if busqueda:
     try:
         condicion_cliente = f"{{Cliente}} = '{busqueda}'"
         if busqueda.isdigit():
+            # Cambio: se busca por campo {autonumero} en lugar de {Numero RMA}
             condicion_rma = f"{{autonumero}} = {busqueda}"
             formula = f"OR({condicion_cliente}, {condicion_rma})"
         else:
@@ -92,13 +93,9 @@ if busqueda:
                 elif es_aceptado and es_finalizado:
                     finalizados.append(record)
                 else:
-                    # Por las dudas si hay casos no aceptados aún, los agrupamos con "en proceso"
                     en_proceso.append(record)
             
-            # Ordenar los finalizados por fecha de 'Resolucion' (Más nuevos primero -> reverse=True)
             finalizados.sort(key=obtener_fecha_ordenamiento, reverse=True)
-            
-            # Combinamos: Primero En Proceso, abajo los Finalizados ordenados cronológicamente
             resultados_ordenados = en_proceso + finalizados
             
             # --- INTERFAZ GRÁFICA DE CONTACTO ---
@@ -126,16 +123,17 @@ if busqueda:
                 diagnostico_texto = f.get('diagnostico', 'Sin diagnóstico registrado.')
                 es_fuera_garantia = "FUERA DE GARANTIA" in estado_valor
                 
-                # Formatear las fechas a DD/MM/YYYY
                 fecha_compra = formatear_fecha_cliente(f.get('Compra'))
                 fecha_resolucion = formatear_fecha_cliente(f.get('Resolucion'))
                 
                 es_finalizado = f.get('Finalizado') in [True, 1, "True", "true"]
                 
+                # Cambio: se muestra el campo {autonumero} en el título
+                nro_caso = f.get('autonumero', 'S/D')
                 if es_finalizado:
-                    titulo_ficha = f"Cliente: {f.get('Cliente', 'S/D')} - RMA: {f.get('autonumero', 'S/D')} | [CASO FINALIZADO]"
+                    titulo_ficha = f"Cliente: {f.get('Cliente', 'S/D')} - Caso: {nro_caso} | [CASO FINALIZADO]"
                 else:
-                    titulo_ficha = f"Cliente: {f.get('Cliente', 'S/D')} - RMA: {f.get('autonumero', 'S/D')} | [EN PROCESO]"
+                    titulo_ficha = f"Cliente: {f.get('Cliente', 'S/D')} - Caso: {nro_caso} | [EN PROCESO]"
                 
                 debe_expandir = True
                 if len(resultados_ordenados) > 2 and index > 0:
