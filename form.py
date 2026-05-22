@@ -134,9 +134,6 @@ with st.container(border=True):
         with col_btn2:
             st.markdown(f"""
                 <a href="{link_whatsapp}" target="_blank" class="btn-whatsapp-custom">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M12.004 2c-5.51 0-9.99 4.49-9.99 10 0 1.91.54 3.7 1.48 5.24l-1.4 5.1 5.23-1.37c1.48.81 3.16 1.27 4.93 1.27 5.51 0 10-4.49 10-10s-4.49-10-10-10zm4.87 14.15c-.21.58-1.22 1.13-1.68 1.19-.46.06-.91.08-2.84-.68-2.47-.97-4.05-3.48-4.17-3.64-.12-.17-1.04-1.38-1.04-2.63 0-1.25.65-1.87.88-2.12.23-.25.5-.31.67-.31.17 0 .33.01.48.01.16.01.37-.06.57.42.21.5.73 1.77.79 1.9.06.12.1.27.02.44-.08.16-.12.27-.25.42-.12.15-.26.33-.37.45-.12.12-.25.26-.11.5.15.24.66 1.09 1.42 1.76.98.86 1.8 1.13 2.06 1.25.25.13.4.1.55-.07.15-.17.65-.75.82-.1.17.15.34.42.92.71.58.29 3.46 1.71 3.54 1.75.08.04.13.19.05.42z"/>
-                    </svg>
                     Contactanos
                 </a>
                 """, unsafe_allow_html=True)
@@ -146,20 +143,18 @@ with st.container(border=True):
         with fila1_col1:
             cliente = st.text_input("Nombre / Razón Social", placeholder="Ej: Juan Pérez o Empresa S.A.").upper()
         with fila1_col2:
-            serial = st.text_input("Serial (SN - ASA)", placeholder="Ubicado en la etiqueta")
+            serial_in = st.text_input("Serial (SN - ASA)", placeholder="Ubicado en la etiqueta")
 
         fila2_col1, fila2_col2 = st.columns(2)
         with fila2_col1:
-            producto = st.text_input("Producto", placeholder="Ingrese nombre de producto")
+            producto_in = st.text_input("Producto", placeholder="Ingrese nombre de producto")
         with fila2_col2:
             fecha_compra = st.date_input("Fecha de Compra", max_value=date.today(), format="DD/MM/YYYY")
-            st.markdown("<div style='color: #888888; font-size: 14px; margin-top: -10px; margin-bottom: 15px;'># Dejar fecha actual si no recuerda</div>", unsafe_allow_html=True)
 
         motivo = st.selectbox("Motivo del trámite", options=["RMA", "Devolución"])
         descripcion = st.text_area("Descripción de la falla", placeholder="Especifique el error / falla detalladamente...")
 
         st.markdown("---")
-        st.markdown("### Método de Contacto")
         opcion_contacto = st.radio("¿Cómo prefiere que nos contactemos?", options=["WhatsApp", "Correo Electrónico"], horizontal=True)
 
         telefono_val = ""
@@ -173,57 +168,47 @@ with st.container(border=True):
         enviar = st.button("ENVIAR SOLICITUD", type="primary", use_container_width=True)
 
         if enviar:
-            contacto_lleno = False
-            if opcion_contacto == "WhatsApp" and telefono_val.strip() != "":
-                contacto_lleno = True
-            elif opcion_contacto == "Correo Electrónico" and email_val.strip() != "":
-                contacto_lleno = True
-            
-            if not cliente or not producto or not serial or not contacto_lleno:
-                st.error("Por favor, complete todos los campos obligatorios para procesar la solicitud.")
+            if not cliente or not producto_in or not serial_in:
+                st.error("Por favor, complete todos los campos obligatorios.")
             else:
                 try:
                     st.session_state.resumen_rma = {
                         "cliente": cliente,
-                        "producto": producto,
-                        "serial": serial,
+                        "producto": producto_in,
+                        "serial": serial_in,
                         "falla": descripcion
                     }
                     
                     nuevo_registro = {
                         "Cliente": cliente,
-                        "Producto": producto,
-                        "Serial": serial,
+                        "Producto": producto_in,
+                        "Serial": serial_in,
                         "Compra": str(fecha_compra),
                         "Motivo del trámite": motivo, 
                         "Falla": descripcion,        
-                        "diagnostico": "",           
                         "Telefono": telefono_val,      
-                        "Email": email_val.strip().lower() if opcion_contacto == "Correo Electrónico" else "",            
+                        "Email": email_val.strip().lower(),            
                         "Estado del RMA": "PENDIENTE",
                         "Ingreso": str(date.today())
                     }
                     
-                    # 1. Guardar en Airtable siempre
                     table.create(nuevo_registro)
                     
-                    # --- 2. LOGICA DE ENVIO DE CORREOS ---
-                    destinatario_cliente = email_val.strip().lower()
-                    contacto_interno_texto = destinatario_cliente if opcion_contacto == "Correo Electrónico" else telefono_val
-                    
-                    if opcion_contacto == "WhatsApp":
-                        # ASUNTO FIJO NUEVAMENTE SOLICITADO
-                        asunto_ws = "Caso creado - Mensaje para cliente"
-                        
-                        # CUERPO DEL CORREO CON LA REESTRUCTURACIÓN EXACTA
-                        cuerpo_ws = (
-                            f"Has recibido una nueva solicitud de RMA.\n"
-                            f"Revisa los datos en Panel RMA y acepta el caso si corresponde.\n"
-                            f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"SOLICITUD \xad - MENSAJE PARA CLIENTE\n"
-                            f"wa.me/{telefono_val.strip()}\n"
-                            f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"¡Su solicitud para RMA\xad\xad ha sido cargada con éxito!\n"
-                            f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Producto: {Producto}\n"
-                            f"Serial: {Serial}\
+                    # CORRECCIÓN: Estructura de cuerpo_ws corregida y nombres de variables ajustados
+                    cuerpo_ws = (
+                        f"Has recibido una nueva solicitud de RMA.\n"
+                        f"Revisa los datos en Panel RMA y acepta el caso si corresponde.\n"
+                        f"-----------------------------------------------------------\n"
+                        f"SOLICITUD - MENSAJE PARA CLIENTE\n"
+                        f"wa.me/{telefono_val.strip()}\n"
+                        f"-----------------------------------------------------------\n"
+                        f"¡Su solicitud para RMA ha sido cargada con éxito!\n"
+                        f"-----------------------------------------------------------\n"
+                        f"Producto: {producto_in}\n"
+                        f"Serial: {serial_in}\n"
+                    )
+
+                    st.session_state.enviado = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al enviar: {e}")
