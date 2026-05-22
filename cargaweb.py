@@ -70,7 +70,7 @@ if busqueda:
     try:
         condicion_cliente = f"{{Cliente}} = '{busqueda}'"
         if busqueda.isdigit():
-            condicion_rma = f"{{Numero RMA}} = {busqueda}"
+            condicion_rma = f"{{autonumero}} = {busqueda}"
             formula = f"OR({condicion_cliente}, {condicion_rma})"
         else:
             formula = condicion_cliente
@@ -133,9 +133,9 @@ if busqueda:
                 es_finalizado = f.get('Finalizado') in [True, 1, "True", "true"]
                 
                 if es_finalizado:
-                    titulo_ficha = f"Cliente: {f.get('Cliente', 'S/D')} - RMA: {f.get('Numero RMA', 'S/D')} | [CASO FINALIZADO]"
+                    titulo_ficha = f"Cliente: {f.get('Cliente', 'S/D')} - RMA: {f.get('autonumero', 'S/D')} | [CASO FINALIZADO]"
                 else:
-                    titulo_ficha = f"Cliente: {f.get('Cliente', 'S/D')} - RMA: {f.get('Numero RMA', 'S/D')} | [EN PROCESO]"
+                    titulo_ficha = f"Cliente: {f.get('Cliente', 'S/D')} - RMA: {f.get('autonumero', 'S/D')} | [EN PROCESO]"
                 
                 debe_expandir = True
                 if len(resultados_ordenados) > 2 and index > 0:
