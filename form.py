@@ -214,46 +214,44 @@ with st.container(border=True):
                     destinatario_cliente = email_val.strip().lower()
                     
                     if opcion_contacto == "WhatsApp":
-                        # NUEVA FUNCIÓN AGREGADA: Estructura solicitada enviada desde EMAIL_INTERNO a federico@altavistasa.com.ar
+                       if opcion_contacto == "WhatsApp":
+                        # ASUNTO FIJO SOLICITADO
                         asunto_ws = "Caso creado - Mensaje para cliente"
+                        
+                        # CUERPO DEL CORREO CON LA NUEVA REESTRUCTURACIÓN EXACTA
                         cuerpo_ws = (
-                            f"SOLICITUD \xad - MENSAJE PARA CLIENTE\n"
+                            f"SOLICITUD - MENSAJE PARA CLIENTE\n"
                             f"wa.me/{telefono_val.strip()}\n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Has recibido una\n"
-                            f"nueva solicitud de {motivo}. \n"
-                            f"Revisa los datos en\n"
-                            f"Panel RMA y acepta el caso si corresponde. \n"
+                            f"Has recibido una nueva solicitud de {motivo}.\n"
+                            f"Revisa los datos en Panel RMA y acepta el caso si corresponde.\n"
                             f"Contacto cliente:\n"
-                            f"{nuevo_registro['Email']} \n"
                             f" \n"
-                            f"Mensaje para el\n"
-                            f"cliente: \n"
-                            f"asunto: \n"
-                            f"ALTAVISTA SA -\n"
-                            f"Solicitud {motivo} cargada con éxito. \n"
-                            f"cuerpo del correo: \n"
-                            f"¡Su solicitud para\n"
-                            f"RMA\xad\xad ha sido cargada con éxito! \n"
-                            f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Producto:\n"
-                            f"{producto} \n"
-                            f"Serial: {serial} \n"
-                            f"Falla: {descripcion} \n"
-                            f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"En breve le\n"
-                            f"asignaremos su número de RMA por este mismo canal. \n"
-                            f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Recuerde que nos\n"
-                            f"puede contactar en: \n"
-                            f"WhatsApp:\n"
-                            f"3433002458 \n"
-                            f"Email:\n"
-                            f"federico@altavistasa.com.ar \n"
                             f" \n"
-                            f"También puede\n"
-                            f"consultar sus casos pendientes en el siguiente enlace: \n"
-                            f"https://rma-altavista.streamlit.app/\n"
+                            f"Mensaje para el cliente:\n"
+                            f"asunto:  ALTAVISTA SA - Solicitud {motivo} cargada con éxito.\n"
+                            f"cuerpo del correo:\n"
+                            f"¡Su solicitud para {motivo} ha sido cargada con éxito!\n"
+                            f"---------------------------------------------------------------------------------------------------------------------------\n"
+                            f"Producto: {producto_in}\n"
+                            f"Serial: {serial_in}\n"
+                            f"Falla: {descripcion}\n"
+                            f"---------------------------------------------------------------------------------------------------------------------------\n"
+                            f"En breve le asignaremos su número de RMA por este mismo canal.\n"
+                            f"---------------------------------------------------------------------------------------------------------------------------\n"
+                            f"Recuerde que nos puede contactar en:\n"
+                            f"WhatsApp: 3433002458\n"
+                            f"Email: federico@altavistasa.com.ar\n"
+                            f" \n"
+                            f"También puede consultar sus casos pendientes en el siguiente enlace:\n"
+                            f"https://rma-altavista.streamlit.app/"
+                        )
+                        
+                        ok_interno = despachar_correo(
+                            config_section="EMAIL_INTERNO",
+                            destinatario="federico@altavistasa.com.ar",
+                            asunto=asunto_ws,
+                            cuerpo_texto=cuerpo_ws
                         )
                         
                         ok_interno = despachar_correo(
