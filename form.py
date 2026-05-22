@@ -212,7 +212,7 @@ with st.container(border=True):
                         asunto_ws = "Caso creado - Mensaje para cliente"
                         cuerpo_ws = (
                             f"SOLICITUD - MENSAJE PARA CLIENTE\n"
-                            f"wa.me/{telefono_val.strip()}\n"
+                            f"www.wa.me/{telefono_val.strip()}\n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
                             f"Has recibido una nueva solicitud de {motivo}. \n"
                             f"Revisa los datos en Panel RMA y acepta el caso si corresponde. \n"
