@@ -220,8 +220,6 @@ with st.container(border=True):
                             f" \n"
                             f" \n"
                             f"Mensaje para el cliente: \n"
-                            f"asunto:  ALTAVISTA SA - Solicitud {motivo} cargada con éxito. \n"
-                            f"cuerpo del correo: \n"
                             f"¡Su solicitud para {motivo} ha sido cargada con éxito! \n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
                             f"Producto: {producto} \n"
