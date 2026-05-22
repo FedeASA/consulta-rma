@@ -18,7 +18,8 @@ st.markdown("""
             padding-right: 2rem !important;
             padding-top: 4rem;
         }
-        div[data-testid="stExpander"] { border: 1px solid #444; margin-bottom: 1rem; }\n        [data-testid="stDataEditor"] div, .stDataTable td {
+        div[data-testid="stExpander"] { border: 1px solid #444; margin-bottom: 1rem; }
+        [data-testid="stDataEditor"] div, .stDataTable td {
             border-bottom: 4px solid #000 !important;
         }
         .stDataTable td, .stDataTable th, [data-testid="stDataEditor"] * {
@@ -166,6 +167,7 @@ with st.expander("📥 1. SOLICITUDES NUEVAS (Sin Aceptar)", expanded=not df1.em
         df1['Ingreso'] = df1['Ingreso'].apply(formatear_para_leer)
         
         with st.form("f1"):
+            # RESTAURADO EXACTAMENTE AL ORIGINAL:
             c1_cols = ['autonumero', 'Aceptado', 'Cliente', 'Producto', 'Serial', 'Motivo del trámite', 'Falla', 'Compra', 'Ingreso', 'Email', 'Telefono']
             st_df1 = df1[['id_interno'] + c1_cols]
             
@@ -219,11 +221,10 @@ with st.expander("⚙️ 2. CASOS ACEPTADOS (En Proceso)", expanded=not df2.empt
         df2['Ingreso'] = df2['Ingreso'].apply(formatear_para_leer)
         
         with st.form("f2"):
-            # MODIFICACIÓN SOLICITADA: Quitamos 'diagnostico' y agregamos 'Serial'
+            # CAMBIO SOLICITADO APLICADO: 'comentario', 'Cliente', 'Producto', 'Serial', 'Estado del RMA', 'Finalizado', 'Ingreso'
             c2_cols = ['autonumero', 'comentario', 'Cliente', 'Producto', 'Serial', 'Estado del RMA', 'Finalizado', 'Ingreso']
             st_df2 = df2[['id_interno'] + c2_cols]
             
-            # MODIFICACIÓN SOLICITADA: Quitamos 'diagnostico' y agregamos 'Serial' a deshabilitados
             deshabilitados_t2 = ['autonumero', 'Cliente', 'Producto', 'Serial', 'Ingreso']
             
             opciones_estado = [
@@ -240,7 +241,7 @@ with st.expander("⚙️ 2. CASOS ACEPTADOS (En Proceso)", expanded=not df2.empt
                     "comentario": st.column_config.TextColumn("💬 Comentario Interno", width="medium"),
                     "Cliente": st.column_config.TextColumn("👤 Cliente"),
                     "Producto": st.column_config.TextColumn("📦 Producto"),
-                    "Serial": st.column_config.TextColumn("🔑 Número de Serie"), # Configuración visual del Serial
+                    "Serial": st.column_config.TextColumn("🔑 Número de Serie"),
                     "Estado del RMA": st.column_config.SelectboxColumn("📊 Estado del RMA", options=opciones_estado, required=True, width="medium"),
                     "Finalizado": st.column_config.CheckboxColumn("🏁 ¿Finalizar?", default=False, width="small"),
                     "Ingreso": st.column_config.TextColumn("📅 Ingreso", width="small")
