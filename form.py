@@ -63,7 +63,6 @@ def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
         smtp_user = st.secrets[config_section]["SMTP_USER"]
         smtp_password = st.secrets[config_section]["SMTP_PASSWORD"]
         
-        # Limpieza estricta de la dirección de destino para evitar fallos de sintaxis SMTP
         destinatario_limpio = str(destinatario).strip().lower()
         
         msg = MIMEMultipart()
@@ -72,11 +71,9 @@ def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
         msg['Subject'] = asunto
         msg.attach(MIMEText(cuerpo_texto, 'plain', 'utf-8'))
         
-        # Conexión directa y cifrada mediante SSL en puerto 465
         server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15)
         server.login(smtp_user, smtp_password)
         
-        # Enviamos y recolectamos posibles rechazos inmediatos del servidor
         rechazados = server.sendmail(smtp_user, destinatario_limpio, msg.as_string())
         server.quit()
         
@@ -207,43 +204,37 @@ with st.container(border=True):
                         "Ingreso": str(date.today())
                     }
                     
-                    # 1. Guardar en Airtable
                     table.create(nuevo_registro)
                     
-                    # --- 2. AUTOMATIZACIONES DE CORREO INDEPENDIENTES ---
                     destinatario_cliente = email_val.strip().lower()
                     
                     if opcion_contacto == "WhatsApp":
-                       if opcion_contacto == "WhatsApp":
-                        # ASUNTO FIJO SOLICITADO
                         asunto_ws = "Caso creado - Mensaje para cliente"
-                        
-                        # CUERPO DEL CORREO CON LA NUEVA REESTRUCTURACIÓN EXACTA
                         cuerpo_ws = (
                             f"SOLICITUD - MENSAJE PARA CLIENTE\n"
                             f"wa.me/{telefono_val.strip()}\n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Has recibido una nueva solicitud de {motivo}.\n"
-                            f"Revisa los datos en Panel RMA y acepta el caso si corresponde.\n"
+                            f"Has recibido una nueva solicitud de {motivo}. \n"
+                            f"Revisa los datos en Panel RMA y acepta el caso si corresponde. \n"
                             f"Contacto cliente:\n"
                             f" \n"
                             f" \n"
-                            f"Mensaje para el cliente:\n"
-                            f"asunto:  ALTAVISTA SA - Solicitud {motivo} cargada con éxito.\n"
-                            f"cuerpo del correo:\n"
-                            f"¡Su solicitud para {motivo} ha sido cargada con éxito!\n"
+                            f"Mensaje para el cliente: \n"
+                            f"asunto:  ALTAVISTA SA - Solicitud {motivo} cargada con éxito. \n"
+                            f"cuerpo del correo: \n"
+                            f"¡Su solicitud para {motivo} ha sido cargada con éxito! \n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Producto: {producto_in}\n"
-                            f"Serial: {serial_in}\n"
-                            f"Falla: {descripcion}\n"
+                            f"Producto: {producto} \n"
+                            f"Serial: {serial} \n"
+                            f"Falla: {descripcion} \n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"En breve le asignaremos su número de RMA por este mismo canal.\n"
+                            f"En breve le asignaremos su número de RMA por este mismo canal. \n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Recuerde que nos puede contactar en:\n"
-                            f"WhatsApp: 3433002458\n"
-                            f"Email: federico@altavistasa.com.ar\n"
+                            f"Recuerde que nos puede contactar en: \n"
+                            f"WhatsApp: 3433002458 \n"
+                            f"Email: federico@altavistasa.com.ar \n"
                             f" \n"
-                            f"También puede consultar sus casos pendientes en el siguiente enlace:\n"
+                            f"También puede consultar sus casos pendientes en el siguiente enlace: \n"
                             f"https://rma-altavista.streamlit.app/"
                         )
                         
@@ -254,15 +245,7 @@ with st.container(border=True):
                             cuerpo_texto=cuerpo_ws
                         )
                         
-                        ok_interno = despachar_correo(
-                            config_section="EMAIL_INTERNO",
-                            destinatario="federico@altavistasa.com.ar",
-                            asunto=asunto_ws,
-                            cuerpo_texto=cuerpo_ws
-                        )
-                        
                     else:
-                        # FLUJO TRADICIONAL: Envío de correos por separado al elegir Correo Electrónico
                         contacto_interno_texto = destinatario_cliente
                         asunto_interno = f"Solicitud {motivo} - Cliente: {cliente} - Producto: {producto}"
                         cuerpo_interno = (
@@ -278,7 +261,6 @@ with st.container(border=True):
                             cuerpo_texto=cuerpo_interno
                         )
                         
-                        # MENSAJE PARA EL CLIENTE (Solo si seleccionó Correo)
                         if ok_interno and destinatario_cliente != "":
                             asunto_cliente = f"ALTAVISTA SA - Solicitud {motivo} cargada con éxito."
                             cuerpo_cliente = (
@@ -305,7 +287,6 @@ with st.container(border=True):
                                 cuerpo_texto=cuerpo_cliente
                             )
                     
-                    # Evaluamos los estados de forma separada para no bloquear la experiencia de usuario
                     if ok_interno:
                         st.session_state.enviado = True
                         st.rerun()
