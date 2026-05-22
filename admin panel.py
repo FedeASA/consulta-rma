@@ -441,7 +441,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 deshabilitados_t2 = ['autonumero', 'Cliente', 'Producto', 'Serial', 'Falla']
             else:
                 c2_cols = ['comentario', 'Cliente', 'Producto', 'Ingreso', 'Serial', 'Estado del RMA', 'Resolucion']
-                deshabilitados_t2 = ['Cliente', 'Producto', 'Ingreso', 'diagnostico', 'Estado del RMA', 'Resolucion']
+                deshabilitados_t2 = ['Cliente', 'Producto', 'Ingreso', 'Serial', 'Estado del RMA', 'Resolucion']
             
             st_df2 = df2[['id_interno'] + c2_cols]
             
