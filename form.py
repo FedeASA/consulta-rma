@@ -225,5 +225,5 @@ with st.container(border=True):
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
                             f"¡Su solicitud para RMA\xad\xad ha sido cargada con éxito!\n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Producto: {producto}\n"
-                            f"Serial: {serial}\
+                            f"Producto: {Producto}\n"
+                            f"Serial: {Serial}\
