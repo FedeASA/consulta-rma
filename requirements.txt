@@ -1,2 +1,4 @@
-pyairtable
 streamlit
+pyairtable
+pandas
+xlsxwriter
