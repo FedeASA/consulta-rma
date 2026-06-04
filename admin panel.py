@@ -233,16 +233,17 @@ if st.session_state.rol == "admin":
 # --- BOTONES DE ACCIÓN SUPERIORES ---
 col_rep1, col_btn_refresh, col_rep2 = st.columns([1, 1, 3])
 with col_rep1:
-    btn_reporte = st.button("📊 Reporte", use_container_width=True)
+    opcion_reporte = st.selectbox(
+        "Opciones de Reporte", 
+        ["Ocultar Reportes", "📊 Reporte Cliente", "🚚 Reporte Viaje"],
+        label_visibility="collapsed"
+    )
 with col_btn_refresh:
     if st.button("🔄 Actualizar Datos", use_container_width=True):
         cargar_todos_los_datos.clear()
         st.rerun()
 
-if btn_reporte:
-    st.session_state.mostrar_input_reporte = not st.session_state.get('mostrar_input_reporte', False)
-
-if st.session_state.get('mostrar_input_reporte', False):
+if opcion_reporte == "📊 Reporte Cliente":
     with st.container(border=True):
         cliente_buscado = st.text_input("Ingrese nombre del Cliente para generar Excel:")
         if cliente_buscado:
@@ -302,6 +303,89 @@ if st.session_state.get('mostrar_input_reporte', False):
                 )
             else:
                 st.warning("No hay datos para ese cliente.")
+
+elif opcion_reporte == "🚚 Reporte Viaje":
+    with st.container(border=True):
+        st.write("### 🚚 Reporte de Viaje Consolidado")
+        df_en_proceso = df_all[(df_all['Aceptado'] == True) & (df_all['Finalizado'] == False)].copy()
+        if not df_en_proceso.empty:
+            clientes_disp = sorted(df_en_proceso['Cliente'].dropna().unique().astype(str).tolist())
+            clientes_seleccionados = st.multiselect("Seleccione clientes para incluir en el viaje:", clientes_disp)
+            
+            if clientes_seleccionados:
+                df_viaje = df_en_proceso[df_en_proceso['Cliente'].isin(clientes_seleccionados)].copy()
+                cols_viaje = ['Cliente', 'autonumero', 'Producto', 'Falla']
+                
+                for c in cols_viaje:
+                    if c not in df_viaje.columns: df_viaje[c] = ""
+                
+                df_viaje = df_viaje[cols_viaje].sort_values(by='Cliente')
+                
+                output_viaje = io.BytesIO()
+                with pd.ExcelWriter(output_viaje, engine='xlsxwriter') as writer:
+                    df_viaje.to_excel(writer, index=False, sheet_name='Viaje', startrow=2)
+                    workbook = writer.book
+                    worksheet = writer.sheets['Viaje']
+                    
+                    formato_titulo = workbook.add_format({'bold': True, 'font_size': 14, 'font_name': 'Segoe UI'})
+                    formato_encabezado = workbook.add_format({
+                        'bold': True, 'font_color': '#FFFFFF', 'bg_color': '#000000',
+                        'border': 1, 'border_color': '#000000', 'align': 'center', 'valign': 'vcenter',
+                        'font_name': 'Segoe UI', 'font_size': 11
+                    })
+                    
+                    worksheet.write(0, 0, f"REPORTE DE VIAJE - {datetime.now().strftime('%d/%m/%Y')}", formato_titulo)
+                    
+                    for col_num, header_title in enumerate(df_viaje.columns):
+                        nombre_col = "Nº RMA" if header_title == "autonumero" else header_title
+                        worksheet.write(1, col_num, nombre_col, formato_encabezado)
+                    
+                    # Paleta de colores suaves para diferenciar clientes
+                    colores_paleta = ['#E6F2FF', '#FFF0E6', '#E6FFE6', '#FFE6E6', '#F2E6FF', '#FFFFE6', '#E6E6E6']
+                    dict_colores = {}
+                    idx_color = 0
+                    
+                    for row_idx in range(len(df_viaje)):
+                        cliente_actual = str(df_viaje.iloc[row_idx, 0])
+                        if cliente_actual not in dict_colores:
+                            dict_colores[cliente_actual] = colores_paleta[idx_color % len(colores_paleta)]
+                            idx_color += 1
+                            
+                        formato_fila = workbook.add_format({
+                            'border': 1, 'border_color': '#000000', 'valign': 'vcenter',
+                            'font_name': 'Segoe UI', 'font_size': 10,
+                            'bg_color': dict_colores[cliente_actual]
+                        })
+                        
+                        for col_idx in range(len(df_viaje.columns)):
+                            val_raw = df_viaje.iloc[row_idx, col_idx]
+                            val_celda = "" if pd.isna(val_raw) or str(val_raw).strip() in ["NaT", "None", "nan", "NaN"] else str(val_raw)
+                            worksheet.write(row_idx + 2, col_idx, val_celda, formato_fila)
+                    
+                    # Ajustar el ancho de las columnas
+                    for i, col in enumerate(df_viaje.columns):
+                        max_len = max([len(str(v)) for v in df_viaje[col].fillna("")] + [len(col)])
+                        worksheet.set_column(i, i, max_len + 4)
+                    
+                    worksheet.set_row(1, 24)
+                    
+                    # Agregar fila de Total de ítems
+                    row_total = len(df_viaje) + 2
+                    formato_total = workbook.add_format({
+                        'bold': True, 'border': 1, 'border_color': '#000000', 'align': 'center', 'valign': 'vcenter',
+                        'bg_color': '#D9D9D9', 'font_name': 'Segoe UI', 'font_size': 11
+                    })
+                    worksheet.merge_range(row_total, 0, row_total, len(df_viaje.columns) - 1, f"TOTAL DE ÍTEMS EN VIAJE: {len(df_viaje)}", formato_total)
+
+                st.download_button(
+                    label="📥 Descargar Reporte de Viaje", 
+                    data=output_viaje.getvalue(), 
+                    file_name=f"Reporte_Viaje_{datetime.now().strftime('%d_%m_%Y')}.xlsx", 
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+        else:
+            st.info("No hay tickets en proceso en este momento.")
+
 st.divider()
 
 if df_all.empty:
@@ -335,17 +419,39 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
             df1 = df1.sort_values(by='Compra', ascending=False)
             
         df1['Compra'] = df1['Compra'].apply(formatear_para_leer)
+        df1.insert(0, 'Eliminar', False) # Columna para el borrado
+        
         with st.form("f1"):
             if st.session_state.rol == "admin":
-                c1_cols = ['Cliente', 'Producto', 'Serial', 'Falla', 'Compra', 'Aceptado']
+                c1_cols = ['Eliminar', 'Cliente', 'Producto', 'Serial', 'Falla', 'Compra', 'Aceptado']
                 esta_deshabilitado_t1 = ['Serial', 'Falla']
             else:
-                c1_cols = ['Cliente', 'Producto', 'Serial', 'Falla']
+                c1_cols = ['Eliminar', 'Cliente', 'Producto', 'Serial', 'Falla']
                 esta_deshabilitado_t1 = ['Cliente', 'Producto', 'Serial', 'Falla']
             
-            ed1 = st.data_editor(df1[['id_interno'] + c1_cols].reset_index(drop=True), column_config={"id_interno":None}, disabled=esta_deshabilitado_t1, hide_index=True, use_container_width=True)
+            ed1 = st.data_editor(
+                df1[['id_interno'] + c1_cols].reset_index(drop=True), 
+                column_config={
+                    "id_interno": None,
+                    "Eliminar": st.column_config.CheckboxColumn("🗑️", width="small", help="Seleccione para eliminar este registro")
+                }, 
+                disabled=esta_deshabilitado_t1, 
+                hide_index=True, 
+                use_container_width=True
+            )
             
-            if st.form_submit_button("GUARDAR ENTRADAS", disabled=(st.session_state.rol != "admin")):
+            st.write("---")
+            col_btn_guardar, col_chk_elim, col_btn_elim = st.columns([2, 3, 2])
+            
+            with col_btn_guardar:
+                submit_guardar = st.form_submit_button("GUARDAR ENTRADAS", disabled=(st.session_state.rol != "admin"), use_container_width=True)
+            with col_chk_elim:
+                confirmar_borrado = st.checkbox("Confirmo que deseo ELIMINAR los registros seleccionados.")
+            with col_btn_elim:
+                submit_eliminar = st.form_submit_button("🗑️ ELIMINAR REGISTROS", use_container_width=True)
+            
+            # --- Lógica de GUARDAR ENTRADAS ---
+            if submit_guardar and st.session_state.rol == "admin":
                 for _, r in ed1.iterrows():
                     orig = df1[df1['id_interno'] == r['id_interno']].iloc[0]
                     
@@ -424,7 +530,22 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                     if up: 
                         table.update(r['id_interno'], up)
                         
-                cargar_todos_los_datos.clear(); st.rerun()
+                cargar_todos_los_datos.clear()
+                st.rerun()
+
+            # --- Lógica de ELIMINAR REGISTROS ---
+            if submit_eliminar:
+                registros_a_borrar = ed1[ed1['Eliminar'] == True]['id_interno'].tolist()
+                if not registros_a_borrar:
+                    st.warning("No seleccionaste ningún registro para eliminar.")
+                elif not confirmar_borrado:
+                    st.error("Debes tildar la casilla de confirmación central para habilitar la eliminación.")
+                else:
+                    for id_borrar in registros_a_borrar:
+                        table.delete(id_borrar)
+                    st.success(f"¡Se eliminaron {len(registros_a_borrar)} registros duplicados/erróneos correctamente!")
+                    cargar_todos_los_datos.clear()
+                    st.rerun()
     else:
         st.info("No hay pendientes.")
 
@@ -489,7 +610,6 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                         email_val = orig.get('Email', '').strip().lower()
                         
                         if telefono_val != "":
-                            # --- CASO WHATSAPP (FINALIZADO - SIN PARÉNTESIS) ---
                             asunto_ws = "Caso finalizado - Mensaje para el cliente"
                             cuerpo_ws = (
                                 f"RMA FINALIZADO - MENSAJE PARA CLIENTE\n"
@@ -509,7 +629,6 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                             despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_ws)
                             
                         elif email_val != "":
-                            # --- CASO EMAIL (FINALIZADO - SIN PARÉNTESIS) ---
                             asunto_email = f"ALTAVISTA SA - Su caso de {motivo_tramite} número: {rma_id} ha sido resuelto."
                             cuerpo_email = (
                                 f"Su número de caso #{rma_id} correspondiente al producto {prod_nom} ha finalizado.\n\n"
