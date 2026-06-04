@@ -212,6 +212,25 @@ def cargar_todos_los_datos():
 
 df_all = cargar_todos_los_datos()
 
+# --- [CORRECCIÓN] VERIFICACIÓN Y COMPATIBILIDAD DE COLUMNAS EXTRA (MOVIDO AL INICIO) ---
+if not df_all.empty:
+    columnas_requeridas = ['Aceptado', 'Finalizado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite']
+    for col in columnas_requeridas:
+        if col not in df_all.columns: 
+            df_all[col] = False if col in ['Aceptado', 'Finalizado'] else ""
+        else:
+            if col in ['Aceptado', 'Finalizado']:
+                df_all[col] = df_all[col].apply(lambda x: True if x in [True, 1, "True", "true"] else False)
+
+    for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite']:
+        if col_txt in df_all.columns:
+            df_all[col_txt] = df_all[col_txt].fillna("").apply(lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else str(x))
+            df_all[col_txt] = df_all[col_txt].apply(lambda x: "" if str(x).strip() in ["None", "none", "nan", "NaN", ""] else str(x).strip())
+else:
+    st.warning("No hay datos para mostrar.")
+    st.stop()
+
+# --- LINKS DE ADMINISTRADOR ---
 if st.session_state.rol == "admin":
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: st.link_button("🔵 Airtable", "https://airtable.com/appjlLix1HpBwnhpS/tblNnoXdIsLFN92Mr/viwLRiCozAc4oVKZY", use_container_width=True)
@@ -340,7 +359,6 @@ elif opcion_reporte == "🚚 Reporte Viaje":
                         nombre_col = "Nº RMA" if header_title == "autonumero" else header_title
                         worksheet.write(1, col_num, nombre_col, formato_encabezado)
                     
-                    # Paleta de colores suaves para diferenciar clientes
                     colores_paleta = ['#E6F2FF', '#FFF0E6', '#E6FFE6', '#FFE6E6', '#F2E6FF', '#FFFFE6', '#E6E6E6']
                     dict_colores = {}
                     idx_color = 0
@@ -362,14 +380,12 @@ elif opcion_reporte == "🚚 Reporte Viaje":
                             val_celda = "" if pd.isna(val_raw) or str(val_raw).strip() in ["NaT", "None", "nan", "NaN"] else str(val_raw)
                             worksheet.write(row_idx + 2, col_idx, val_celda, formato_fila)
                     
-                    # Ajustar el ancho de las columnas
                     for i, col in enumerate(df_viaje.columns):
                         max_len = max([len(str(v)) for v in df_viaje[col].fillna("")] + [len(col)])
                         worksheet.set_column(i, i, max_len + 4)
                     
                     worksheet.set_row(1, 24)
                     
-                    # Agregar fila de Total de ítems
                     row_total = len(df_viaje) + 2
                     formato_total = workbook.add_format({
                         'bold': True, 'border': 1, 'border_color': '#000000', 'align': 'center', 'valign': 'vcenter',
@@ -388,24 +404,6 @@ elif opcion_reporte == "🚚 Reporte Viaje":
 
 st.divider()
 
-if df_all.empty:
-    st.warning("No hay datos para mostrar.")
-    st.stop()
-
-# --- VERIFICACIÓN Y COMPATIBILIDAD DE COLUMNAS EXTRA ---
-columnas_requeridas = ['Aceptado', 'Finalizado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite']
-for col in columnas_requeridas:
-    if col not in df_all.columns: 
-        df_all[col] = False if col in ['Aceptado', 'Finalizado'] else ""
-    else:
-        if col in ['Aceptado', 'Finalizado']:
-            df_all[col] = df_all[col].apply(lambda x: True if x in [True, 1, "True", "true"] else False)
-
-for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite']:
-    if col_txt in df_all.columns:
-        df_all[col_txt] = df_all[col_txt].fillna("").apply(lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else str(x))
-        df_all[col_txt] = df_all[col_txt].apply(lambda x: "" if str(x).strip() in ["None", "none", "nan", "NaN", ""] else str(x).strip())
-
 # --- TABLA 1: POR ACEPTAR ---
 df1 = df_all[
     (df_all['Aceptado'] == False) & 
@@ -419,7 +417,7 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
             df1 = df1.sort_values(by='Compra', ascending=False)
             
         df1['Compra'] = df1['Compra'].apply(formatear_para_leer)
-        df1.insert(0, 'Eliminar', False) # Columna para el borrado
+        df1.insert(0, 'Eliminar', False)
         
         with st.form("f1"):
             if st.session_state.rol == "admin":
@@ -450,7 +448,6 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
             with col_btn_elim:
                 submit_eliminar = st.form_submit_button("🗑️ ELIMINAR REGISTROS", use_container_width=True)
             
-            # --- Lógica de GUARDAR ENTRADAS ---
             if submit_guardar and st.session_state.rol == "admin":
                 for _, r in ed1.iterrows():
                     orig = df1[df1['id_interno'] == r['id_interno']].iloc[0]
@@ -533,7 +530,6 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                 cargar_todos_los_datos.clear()
                 st.rerun()
 
-            # --- Lógica de ELIMINAR REGISTROS ---
             if submit_eliminar:
                 registros_a_borrar = ed1[ed1['Eliminar'] == True]['id_interno'].tolist()
                 if not registros_a_borrar:
