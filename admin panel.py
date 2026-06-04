@@ -109,7 +109,7 @@ def login():
                 else:
                     st.error("Usuario o contraseña incorrectos.")
             except Exception:
-                st.error("Error de configuración: No se encontró la sección [USUARIOS] en los Secrets.")
+                st.error("Error de configuración: No se encontró la sección [USUARIOS] in los Secrets.")
 
 if not st.session_state.autenticado:
     login()
@@ -212,9 +212,9 @@ def cargar_todos_los_datos():
 
 df_all = cargar_todos_los_datos()
 
-# --- [CORRECCIÓN] VERIFICACIÓN Y COMPATIBILIDAD DE COLUMNAS EXTRA (MOVIDO AL INICIO) ---
+# --- VERIFICACIÓN Y COMPATIBILIDAD DE COLUMNAS (AL INICIO PARA EVITAR DESFASES) ---
 if not df_all.empty:
-    columnas_requeridas = ['Aceptado', 'Finalizado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite']
+    columnas_requeridas = ['Aceptado', 'Finalizado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR']
     for col in columnas_requeridas:
         if col not in df_all.columns: 
             df_all[col] = False if col in ['Aceptado', 'Finalizado'] else ""
@@ -222,7 +222,7 @@ if not df_all.empty:
             if col in ['Aceptado', 'Finalizado']:
                 df_all[col] = df_all[col].apply(lambda x: True if x in [True, 1, "True", "true"] else False)
 
-    for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite']:
+    for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR']:
         if col_txt in df_all.columns:
             df_all[col_txt] = df_all[col_txt].fillna("").apply(lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else str(x))
             df_all[col_txt] = df_all[col_txt].apply(lambda x: "" if str(x).strip() in ["None", "none", "nan", "NaN", ""] else str(x).strip())
@@ -421,11 +421,12 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
         
         with st.form("f1"):
             if st.session_state.rol == "admin":
-                c1_cols = ['Eliminar', 'Cliente', 'Producto', 'Serial', 'Falla', 'Compra', 'Aceptado']
-                esta_deshabilitado_t1 = ['Serial', 'Falla']
+                # MODIFICADO: Se agrega PROVEEDOR y se deja la lista deshabilitada VACÍA (Todo es editable)
+                c1_cols = ['Eliminar', 'Cliente', 'Producto', 'Serial', 'Falla', 'Compra', 'PROVEEDOR', 'Aceptado']
+                esta_deshabilitado_t1 = []
             else:
-                c1_cols = ['Eliminar', 'Cliente', 'Producto', 'Serial', 'Falla']
-                esta_deshabilitado_t1 = ['Cliente', 'Producto', 'Serial', 'Falla']
+                c1_cols = ['Eliminar', 'Cliente', 'Producto', 'Serial', 'Falla', 'PROVEEDOR']
+                esta_deshabilitado_t1 = ['Cliente', 'Producto', 'Serial', 'Falla', 'PROVEEDOR']
             
             ed1 = st.data_editor(
                 df1[['id_interno'] + c1_cols].reset_index(drop=True), 
@@ -449,6 +450,7 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                 submit_eliminar = st.form_submit_button("🗑️ ELIMINAR REGISTROS", use_container_width=True)
             
             if submit_guardar and st.session_state.rol == "admin":
+                records_to_update = []
                 for _, r in ed1.iterrows():
                     orig = df1[df1['id_interno'] == r['id_interno']].iloc[0]
                     
@@ -456,22 +458,27 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                     if 'Aceptado' in r and r['Aceptado'] == True and orig.get('Aceptado') == False:
                         esta_aceptando = True
                     
-                    up = {k: r[k] for k in ['Aceptado','Cliente','Producto'] if k in r and str(r[k]) != str(orig.get(k,""))}
+                    # MODIFICADO: Incluye todos los campos editables de la Tabla 1 para guardarse en Airtable
+                    campos_a_revisar = ['Aceptado', 'Cliente', 'Producto', 'Serial', 'Falla', 'PROVEEDOR']
+                    up = {k: r[k] for k in campos_a_revisar if k in r and str(r[k]) != str(orig.get(k,""))}
+                    
                     if 'Compra' in r:
                         f, e = formatear_y_validar_fecha(r['Compra'])
-                        if e == "OK" and f: up['Compra'] = f
+                        if e == "OK" and f and f != orig.get('Compra', ''): 
+                            up['Compra'] = f
                     
                     if esta_aceptando:
-                        cliente_nom = orig.get('Cliente', '')
-                        prod_nom = orig.get('Producto', '')
-                        serial_num = orig.get('Serial', '')
-                        falla_desc = orig.get('Falla', '')
-                        fecha_compra_str = formatear_para_leer(orig.get('Compra', ''))
+                        # OPTIMIZACIÓN: Lee el valor corregido (r) si existe, o el original (orig) de respaldo
+                        cliente_nom = r.get('Cliente', orig.get('Cliente', ''))
+                        prod_nom = r.get('Producto', orig.get('Producto', ''))
+                        serial_num = r.get('Serial', orig.get('Serial', ''))
+                        falla_desc = r.get('Falla', orig.get('Falla', ''))
+                        fecha_compra_str = formatear_para_leer(up.get('Compra', orig.get('Compra', '')))
                         motivo_tramite = orig.get('Motivo del trámite', 'RMA')
                         if not motivo_tramite: motivo_tramite = "RMA"
                         
                         rma_id = orig.get('autonumero', '')
-                        cliente_id = orig.get('Cliente', '')
+                        cliente_id = cliente_nom
                         estado_rma = "PENDIENTE"
                         
                         telefono_val = orig.get('Telefono', '').strip()
@@ -525,7 +532,12 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                             despachar_correo("EMAIL_CLIENTE", email_val, asunto_email, cuerpo_email)
                     
                     if up: 
-                        table.update(r['id_interno'], up)
+                        records_to_update.append({"id": r['id_interno'], "fields": up})
+                        
+                # OPTIMIZACIÓN DE VELOCIDAD: Guardado por lotes de 10 en 10
+                if records_to_update:
+                    for i in range(0, len(records_to_update), 10):
+                        table.batch_update(records_to_update[i:i+10])
                         
                 cargar_todos_los_datos.clear()
                 st.rerun()
@@ -539,7 +551,7 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                 else:
                     for id_borrar in registros_a_borrar:
                         table.delete(id_borrar)
-                    st.success(f"¡Se eliminaron {len(registros_a_borrar)} registros duplicados/erróneos correctamente!")
+                    st.success(f"¡Se eliminaron {len(registros_a_borrar)} registros correctamente!")
                     cargar_todos_los_datos.clear()
                     st.rerun()
     else:
@@ -578,6 +590,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
             )
             
             if st.form_submit_button("ACTUALIZAR PROCESOS"):
+                records_to_update = []
                 for _, r in ed2.iterrows():
                     orig = df2[df2['id_interno'] == r['id_interno']].iloc[0]
                     campos_a_revisar = ['comentario', 'diagnostico', 'Estado del RMA', 'Finalizado'] if st.session_state.rol == "admin" else ['comentario']
@@ -590,7 +603,8 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                     
                     if st.session_state.rol == "admin" and 'Ingreso' in r:
                         val, stt = formatear_y_validar_fecha(r['Ingreso'])
-                        if stt == "OK": up['Ingreso'] = val
+                        if stt == "OK" and val != orig.get('Ingreso', ''): 
+                            up['Ingreso'] = val
                     
                     if esta_finalizando:
                         rma_id = orig.get('autonumero', '')
@@ -640,7 +654,14 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                             )
                             despachar_correo("EMAIL_CLIENTE", email_val, asunto_email, cuerpo_email)
                     
-                    if up: table.update(r['id_interno'], up)
+                    if up: 
+                        records_to_update.append({"id": r['id_interno'], "fields": up})
+                
+                # OPTIMIZACIÓN DE VELOCIDAD: Guardado por lotes de 10 en 10
+                if records_to_update:
+                    for i in range(0, len(records_to_update), 10):
+                        table.batch_update(records_to_update[i:i+10])
+                        
                 cargar_todos_los_datos.clear(); st.rerun()
 
 # --- TABLA 3: HISTÓRICO ---
@@ -669,8 +690,16 @@ with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
             )
             
             if st.form_submit_button("ACTUALIZAR COMENTARIOS HISTÓRICO"):
+                records_to_update = []
                 for _, r in ed3.iterrows():
                     orig = df3[df3['id_interno'] == r['id_interno']].iloc[0]
                     up = {k: r[k] for k in ['comentario'] if str(r[k]) != str(orig.get(k, ""))}
-                    if up: table.update(r['id_interno'], up)
+                    if up:
+                        records_to_update.append({"id": r['id_interno'], "fields": up})
+                
+                # OPTIMIZACIÓN DE VELOCIDAD: Guardado por lotes de 10 en 10
+                if records_to_update:
+                    for i in range(0, len(records_to_update), 10):
+                        table.batch_update(records_to_update[i:i+10])
+                        
                 cargar_todos_los_datos.clear(); st.rerun()
