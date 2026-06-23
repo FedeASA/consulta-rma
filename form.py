@@ -311,4 +311,4 @@ with st.container(border=True):
                         st.error("⚠️ No se pudo procesar la alerta de correo interno. Comprobá las credenciales en los Secrets.")
                     
                 except Exception as e:
-                    st.error(f"Error al procesar en Airtable: {e}")
+    st.error(f"Error al procesar en Google Sheets: {e}")
