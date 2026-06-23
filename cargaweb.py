@@ -5,7 +5,57 @@ from sheets_operations import get_all_records
 from utils import es_verdadero, formatear_fecha
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="RMA ALTAVISTA SA", layout="centered")
+st.set_page_config(page_title="RM3436220593	
+3436220593	
+3436220593	
+3436987265	
+	unclickweb@gmail.com
+5493434298869	
+3426156882	
+3413422310	
+3413422310	
+3415595948	
+3416611910	
+3434726899	
+3434726899	
+3434726899	
+3434658663	
+3416611910	
+3416611910	
+3413422310	
+543434693989	
+543434693989	
+3435358775	
+3434405553	
+3425215684	
+CLAA	
+CLAA	
+CLAA	
+CLAA	
+CLAA	
+	pcservicepamovil@gmail.com
+3435613496	
+3424632550	
+3435093528	
+3413422310	
+3425198383	
+3413422310	
+3425198383	
+3438407549	
+3438407549	
+3436220593	
+3482 639224	
+3482639224	
+3482639224	
+342-6399169	
+3413422310	
+3434658663	
+5493425475600	
+3482639224	
+3425024085	
+3425024085	
+3413422310	
+	pcservicepamovil@gmail.comA ALTAVISTA SA", layout="centered")
 
 # --- CSS PARA ELIMINAR EL CARTEL "PRESS ENTER TO APPLY" ---
 st.markdown("""
@@ -53,11 +103,11 @@ if busqueda:
             st.warning("No hay registros en la base de datos.")
             st.stop()
         
-        # Filtrar registros que coincidan con Cliente o Numero RMA
+        # Filtrar registros que coincidan con Cliente o autonumero
         results = []
         for record in records:
             cliente = str(record.get('Cliente', '')).upper()
-            numero_rma = str(record.get('Numero RMA', '')).upper()
+            numero_rma = str(record.get('autonumero', '')).upper()
             
             if busqueda in cliente or busqueda == numero_rma:
                 results.append(record)
@@ -115,9 +165,9 @@ if busqueda:
                 es_finalizado = record.get('Finalizado') in [True, 1, "True", "true", "SI", "Sí"]
                 
                 if es_finalizado:
-                    titulo_ficha = f"Cliente: {record.get('Cliente', 'S/D')} - RMA: {record.get('Numero RMA', 'S/D')} | [CASO FINALIZADO]"
+                    titulo_ficha = f"Cliente: {record.get('Cliente', 'S/D')} - RMA: {record.get('autonumero', 'S/D')} | [CASO FINALIZADO]"
                 else:
-                    titulo_ficha = f"Cliente: {record.get('Cliente', 'S/D')} - RMA: {record.get('Numero RMA', 'S/D')} | [EN PROCESO]"
+                    titulo_ficha = f"Cliente: {record.get('Cliente', 'S/D')} - RMA: {record.get('autonumero', 'S/D')} | [EN PROCESO]"
                 
                 debe_expandir = True
                 if len(resultados_ordenados) > 2 and index > 0:
