@@ -462,9 +462,9 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                     up = {}
                     for k in campos_a_revisar:
                         if k in r and str(r[k]) != str(orig.get(k, "")):
-                            if k in ['Aceptado', 'Finalizado']:
-                                up[k] = booleano_a_sheets(r[k])
-                            else:
+                           if k in ['Aceptado', 'Finalizado']:
+                                up[k] = bool(r[k])  # Pasamos el booleano puro (True/False) directo a Sheets
+                           else:
                                 up[k] = r[k]
                     
                     if 'Compra' in r:
@@ -482,9 +482,23 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                         motivo_tramite = orig.get('Motivo del trámite', 'RMA')
                         if not motivo_tramite: motivo_tramite = "RMA"
                         
-                        rma_id = orig.get('autonumero', '')
-                        cliente_id = cliente_nom
-                        estado_rma = "PENDIENTE"
+                        # CÓDIGO CORREGIDO
+rma_id = str(orig.get('autonumero', '')).strip()
+
+# Si no tiene número de RMA, calculamos el siguiente sumando 1 al máximo histórico
+if rma_id in ["", "nan", "None"]:
+    # Convertimos la columna a números, ignorando textos y vacíos
+    numeros_existentes = pd.to_numeric(df_all['autonumero'], errors='coerce').dropna()
+    if not numeros_existentes.empty:
+        rma_id = str(int(numeros_existentes.max() + 1))
+    else:
+        rma_id = "1" # Por si la tabla estuviera completamente vacía
+    
+    # ¡Clave! Lo guardamos en el diccionario 'up' para que se escriba en Google Sheets
+    up['autonumero'] = rma_id 
+
+cliente_id = cliente_nom
+estado_rma = "PENDIENTE"
                         
                         telefono_val = orig.get('Telefono', '').strip()
                         email_val = orig.get('Email', '').strip().lower()
@@ -604,9 +618,9 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                     up = {}
                     for k in campos_a_revisar:
                         if k in r and str(r[k]) != str(orig.get(k, "")):
-                            if k in ['Aceptado', 'Finalizado']:
-                                up[k] = booleano_a_sheets(r[k])
-                            else:
+                           if k in ['Aceptado', 'Finalizado']:
+                                up[k] = bool(r[k])  # Pasamos el booleano puro (True/False) directo a Sheets
+                           else:
                                 up[k] = r[k]
                     
                     esta_finalizando = False
