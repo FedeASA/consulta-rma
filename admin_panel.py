@@ -497,12 +497,11 @@ if rma_id in ["", "nan", "None"]:
     # ¡Clave! Lo guardamos en el diccionario 'up' para que se escriba en Google Sheets
     up['autonumero'] = rma_id 
 
-cliente_id = cliente_nom
-estado_rma = "PENDIENTE"
-                        
-                        telefono_val = orig.get('Telefono', '').strip()
-                        email_val = orig.get('Email', '').strip().lower()
-                        
+    cliente_id = cliente_nom
+    estado_rma = "PENDIENTE"
+    telefono_val = orig.get('Telefono', '').strip()
+    email_val = orig.get('Email', '').strip().lower()     
+    
                         if telefono_val != "":
                             asunto_ws = "Caso aceptado - Mensaje para el cliente"
                             cuerpo_ws = (
