@@ -1,7 +1,8 @@
 import streamlit as st
-from pyairtable import Api
 import urllib.parse
 from datetime import datetime
+from sheets_operations import get_all_records
+from utils import es_verdadero, formatear_fecha
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="RMA ALTAVISTA SA", layout="centered")
@@ -17,37 +18,14 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- CREDENCIALES SEGURAS (SECRETS) ---
-try:
-    AIRTABLE_TOKEN = st.secrets["AIRTABLE_TOKEN"]
-    BASE_ID = st.secrets["BASE_ID"]
-    TABLE_NAME = f"{st.secrets['TABLE_NAME']}"
-except Exception:
-    st.error("Error: No se encontraron las credenciales en los Secrets de Streamlit.")
-    st.stop()
-
-api = Api(AIRTABLE_TOKEN)
-table = api.table(BASE_ID, TABLE_NAME)
-
 # --- FUNCIONES DE APOYO ---
 def formatear_fecha_cliente(fecha_raw):
-    """Convierte fechas YYYY-MM-DD de Airtable a formato legible DD/MM/YYYY"""
-    if not fecha_raw or str(fecha_raw).strip() in ["None", "none", "nan", "NaN", ""]: 
-        return "N/A"
-    
-    fecha_str = str(fecha_raw).replace('-', '/').strip()
-    for formato in ['%Y/%m/%d', '%Y-%m-%d', '%d/%m/%Y']:
-        try:
-            dt = datetime.strptime(fecha_str, formato)
-            return dt.strftime('%d/%m/%Y')
-        except ValueError:
-            continue
-    return str(fecha_raw)
+    """Convierte valores de fecha a formato legible DD/MM/YYYY"""
+    return formatear_fecha(fecha_raw)
 
 def obtener_fecha_ordenamiento(record):
     """Extrae la fecha de resolución para usarla como clave de ordenamiento"""
-    f = record.get('fields', {})
-    fecha_raw = f.get('Resolucion', '')
+    fecha_raw = record.get('Resolucion', '')
     if not fecha_raw or str(fecha_raw).strip() in ["None", "none", "nan", "NaN", ""]:
         return datetime.min # Si no tiene fecha, lo manda al final de los finalizados
     
@@ -63,20 +41,26 @@ def obtener_fecha_ordenamiento(record):
 st.markdown("<h1 style='text-align: center;'>RMA ALTAVISTA SA</h1>", unsafe_allow_html=True)
 
 # --- BARRA DE BÚSQUEDA ---
-entrada_usuario = st.text_input("Ingrese Código de Cliente o Número de Caso:", value="").strip()
+entrada_usuario = st.text_input("Ingrese Código de Cliente o Número de RMA:", value="").strip()
 busqueda = entrada_usuario.upper() 
 
 if busqueda:
     try:
-        condicion_cliente = f"{{Cliente}} = '{busqueda}'"
-        if busqueda.isdigit():
-            # Cambio: se busca por campo {autonumero} en lugar de {Numero RMA}
-            condicion_rma = f"{{autonumero}} = {busqueda}"
-            formula = f"OR({condicion_cliente}, {condicion_rma})"
-        else:
-            formula = condicion_cliente
+        # Obtener todos los registros
+        records = get_all_records()
         
-        results = table.all(formula=formula)
+        if not records:
+            st.warning("No hay registros en la base de datos.")
+            st.stop()
+        
+        # Filtrar registros que coincidan con Cliente o Numero RMA
+        results = []
+        for record in records:
+            cliente = str(record.get('Cliente', '')).upper()
+            numero_rma = str(record.get('Numero RMA', '')).upper()
+            
+            if busqueda in cliente or busqueda == numero_rma:
+                results.append(record)
         
         if results:
             # --- LÓGICA DE CLASIFICACIÓN Y ORDENAMIENTO DE CASOS ---
@@ -84,9 +68,8 @@ if busqueda:
             finalizados = []
             
             for record in results:
-                f = record.get('fields', {})
-                es_aceptado = f.get('Aceptado') in [True, 1, "True", "true"]
-                es_finalizado = f.get('Finalizado') in [True, 1, "True", "true"]
+                es_aceptado = es_verdadero(record.get('Aceptado'))
+                es_finalizado = es_verdadero(record.get('Finalizado'))
                 
                 if es_aceptado and not es_finalizado:
                     en_proceso.append(record)
@@ -95,7 +78,10 @@ if busqueda:
                 else:
                     en_proceso.append(record)
             
+            # Ordenar los finalizados por fecha de 'Resolucion' (Más nuevos primero -> reverse=True)
             finalizados.sort(key=obtener_fecha_ordenamiento, reverse=True)
+            
+            # Combinamos: Primero En Proceso, abajo los Finalizados ordenados cronológicamente
             resultados_ordenados = en_proceso + finalizados
             
             # --- INTERFAZ GRÁFICA DE CONTACTO ---
@@ -118,22 +104,20 @@ if busqueda:
 
             # --- RENDERS DE LAS FICHAS ---
             for index, record in enumerate(resultados_ordenados):
-                f = record['fields']
-                estado_valor = str(f.get('Estado del RMA', '')).strip().upper()
-                diagnostico_texto = f.get('diagnostico', 'Sin diagnóstico registrado.')
+                estado_valor = str(record.get('Estado del RMA', '')).strip().upper()
+                diagnostico_texto = record.get('diagnostico', 'Sin diagnóstico registrado.')
                 es_fuera_garantia = "FUERA DE GARANTIA" in estado_valor
                 
-                fecha_compra = formatear_fecha_cliente(f.get('Compra'))
-                fecha_resolucion = formatear_fecha_cliente(f.get('Resolucion'))
+                # Formatear las fechas a DD/MM/YYYY
+                fecha_compra = formatear_fecha_cliente(record.get('Compra'))
+                fecha_resolucion = formatear_fecha_cliente(record.get('Resolucion'))
                 
-                es_finalizado = f.get('Finalizado') in [True, 1, "True", "true"]
+                es_finalizado = record.get('Finalizado') in [True, 1, "True", "true", "SI", "Sí"]
                 
-                # Cambio: se muestra el campo {autonumero} en el título
-                nro_caso = f.get('autonumero', 'S/D')
                 if es_finalizado:
-                    titulo_ficha = f"Cliente: {f.get('Cliente', 'S/D')} - Caso: {nro_caso} | [CASO FINALIZADO]"
+                    titulo_ficha = f"Cliente: {record.get('Cliente', 'S/D')} - RMA: {record.get('Numero RMA', 'S/D')} | [CASO FINALIZADO]"
                 else:
-                    titulo_ficha = f"Cliente: {f.get('Cliente', 'S/D')} - Caso: {nro_caso} | [EN PROCESO]"
+                    titulo_ficha = f"Cliente: {record.get('Cliente', 'S/D')} - RMA: {record.get('Numero RMA', 'S/D')} | [EN PROCESO]"
                 
                 debe_expandir = True
                 if len(resultados_ordenados) > 2 and index > 0:
@@ -142,25 +126,25 @@ if busqueda:
                 with st.expander(titulo_ficha, expanded=debe_expandir):
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.markdown(f"**Producto:** {f.get('Producto', 'N/A')}")
-                        st.markdown(f"**Serial:** {f.get('Serial', 'N/A')}")
+                        st.markdown(f"**Producto:** {record.get('Producto', 'N/A')}")
+                        st.markdown(f"**Serial:** {record.get('Serial', 'N/A')}")
                         if es_fuera_garantia:
                             st.markdown(f"**Compra:** :red[{fecha_compra}]")
                         else:
                             st.markdown(f"**Compra:** {fecha_compra}")
-                        st.markdown(f"**Ingreso:** {f.get('Ingreso', 'N/A')}")
+                        st.markdown(f"**Ingreso:** {record.get('Ingreso', 'N/A')}")
                     
                     with col2:
-                        aceptado_icon = "✅" if f.get('Aceptado') else "❌"
+                        aceptado_icon = "✅" if record.get('Aceptado') else "❌"
                         st.markdown(f"**Aceptado:** {aceptado_icon}")
-                        st.markdown(f"**Estado del RMA:** {f.get('Estado del RMA', 'N/A')}")
+                        st.markdown(f"**Estado del RMA:** {record.get('Estado del RMA', 'N/A')}")
                         
                         if es_finalizado:
                             st.markdown(f"**Resolución:** :red[{fecha_resolucion}]")
                         else:
                             st.markdown(f"**Resolución:** {fecha_resolucion}")
                         
-                        comentario_texto = f.get('comentario', '')
+                        comentario_texto = record.get('comentario', '')
                         if comentario_texto and str(comentario_texto).strip() not in ["None", "none", "nan", "NaN", ""]:
                             st.markdown(f"**Comentario:** {comentario_texto}")
                     

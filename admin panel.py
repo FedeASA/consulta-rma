@@ -1,11 +1,19 @@
 import streamlit as st
-from pyairtable import Api
 import pandas as pd
 from datetime import datetime, date
 import io
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from sheets_operations import (
+    get_dataframe,
+    get_all_records,
+    update_record,
+    delete_row,
+    find_row_by_values,
+    clear_cache
+)
+from utils import es_verdadero, booleano_a_sheets
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Panel RMA", layout="wide")
@@ -124,16 +132,6 @@ if st.sidebar.button("Cerrar Sesión", type="secondary", use_container_width=Tru
     st.session_state.rol = ""
     st.rerun()
 
-try:
-    AIRTABLE_TOKEN = st.secrets["AIRTABLE_TOKEN"]
-    BASE_ID = st.secrets["BASE_ID"]
-    TABLE_NAME = st.secrets["TABLE_NAME"]
-    api = Api(AIRTABLE_TOKEN)
-    table = api.table(BASE_ID, TABLE_NAME)
-except Exception as e:
-    st.error(f"Error en credenciales: {e}")
-    st.stop()
-
 # --- ENVIADOR DE CORREOS CONFIGURABLE ---
 def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
     try:
@@ -201,14 +199,14 @@ def formatear_y_validar_fecha(fecha_texto):
 
 @st.cache_data(ttl=5)
 def cargar_todos_los_datos():
-    all_records = table.all()
-    if not all_records: return pd.DataFrame()
-    rows = []
-    for r in all_records:
-        fields = r['fields']
-        fields['id_interno'] = r['id']
-        rows.append(fields)
-    return pd.DataFrame(rows)
+    """Carga todos los registros de Google Sheets"""
+    df = get_dataframe()
+    if df.empty:
+        return pd.DataFrame()
+    
+    # Agregar ID (número de fila) para tracking
+    df['row_number'] = range(2, len(df) + 2)  # Las filas de datos comienzan en 2
+    return df
 
 df_all = cargar_todos_los_datos()
 
@@ -220,7 +218,7 @@ if not df_all.empty:
             df_all[col] = False if col in ['Aceptado', 'Finalizado'] else ""
         else:
             if col in ['Aceptado', 'Finalizado']:
-                df_all[col] = df_all[col].apply(lambda x: True if x in [True, 1, "True", "true"] else False)
+                df_all[col] = df_all[col].apply(lambda x: es_verdadero(x))
 
     for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR']:
         if col_txt in df_all.columns:
@@ -230,9 +228,9 @@ else:
     st.warning("No hay datos para mostrar.")
     st.stop()
 
-# --- LINKS DE ADMINISTRADOR ---
-if st.session_state.rol == "admin":
-    c1, c2, c3, c4, c5 = st.columns(5)
+# # --- LINKS DE ADMINISTRADOR ---
+if st.session_state.rol == "admin" or st.session_state.usuario == "edu":
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1: st.link_button("🔵 Airtable", "https://airtable.com/appjlLix1HpBwnhpS/tblNnoXdIsLFN92Mr/viwLRiCozAc4oVKZY", use_container_width=True)
     with c2: st.link_button("💻 Github", "https://github.com/FedeASA/consulta-rma", use_container_width=True)
     with c3: st.link_button("📝 Texto Clientes", "https://docs.google.com/document/d/1URgFPuVsIoR6LX2diAwFR5rWRKYvmmEwvQ7VXuxSnYg", use_container_width=True)
@@ -248,6 +246,7 @@ if st.session_state.rol == "admin":
             </div>
         """, unsafe_allow_html=True)
     with c5: st.link_button("📊 Excel Viejo", "https://docs.google.com/spreadsheets/d/17zp1kEZhVBw1Ul3HkoDZhyQ2IYthjNGS", use_container_width=True)
+    with c6: st.link_button("🔁 Proveedores - RMA", "https://panelproveedores.streamlit.app/", use_container_width=True)
 
 # --- BOTONES DE ACCIÓN SUPERIORES ---
 col_rep1, col_btn_refresh, col_rep2 = st.columns([1, 1, 3])
@@ -429,9 +428,9 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                 esta_deshabilitado_t1 = ['Cliente', 'Producto', 'Serial', 'Falla', 'PROVEEDOR']
             
             ed1 = st.data_editor(
-                df1[['id_interno'] + c1_cols].reset_index(drop=True), 
+                df1[['row_number'] + c1_cols].reset_index(drop=True), 
                 column_config={
-                    "id_interno": None,
+                    "row_number": None,
                     "Eliminar": st.column_config.CheckboxColumn("🗑️", width="small", help="Seleccione para eliminar este registro")
                 }, 
                 disabled=esta_deshabilitado_t1, 
@@ -452,15 +451,21 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
             if submit_guardar and st.session_state.rol == "admin":
                 records_to_update = []
                 for _, r in ed1.iterrows():
-                    orig = df1[df1['id_interno'] == r['id_interno']].iloc[0]
+                    orig = df1[df1['row_number'] == r['row_number']].iloc[0]
                     
-                    esta_aceptando = False
-                    if 'Aceptado' in r and r['Aceptado'] == True and orig.get('Aceptado') == False:
-                        esta_aceptando = True
+                    aceptado_nuevo = es_verdadero(r.get('Aceptado', False))
+                    aceptado_original = es_verdadero(orig.get('Aceptado', False))
+                    esta_aceptando = aceptado_nuevo and not aceptado_original
                     
-                    # MODIFICADO: Incluye todos los campos editables de la Tabla 1 para guardarse en Airtable
+                    # MODIFICADO: Incluye todos los campos editables de la Tabla 1 para guardarse en Google Sheets
                     campos_a_revisar = ['Aceptado', 'Cliente', 'Producto', 'Serial', 'Falla', 'PROVEEDOR']
-                    up = {k: r[k] for k in campos_a_revisar if k in r and str(r[k]) != str(orig.get(k,""))}
+                    up = {}
+                    for k in campos_a_revisar:
+                        if k in r and str(r[k]) != str(orig.get(k, "")):
+                            if k in ['Aceptado', 'Finalizado']:
+                                up[k] = booleano_a_sheets(r[k])
+                            else:
+                                up[k] = r[k]
                     
                     if 'Compra' in r:
                         f, e = formatear_y_validar_fecha(r['Compra'])
@@ -532,27 +537,27 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                             despachar_correo("EMAIL_CLIENTE", email_val, asunto_email, cuerpo_email)
                     
                     if up: 
-                        records_to_update.append({"id": r['id_interno'], "fields": up})
+                        records_to_update.append({"row": r['row_number'], "data": up})
                         
-                # OPTIMIZACIÓN DE VELOCIDAD: Guardado por lotes de 10 en 10
+                # Guardado en Google Sheets
                 if records_to_update:
-                    for i in range(0, len(records_to_update), 10):
-                        table.batch_update(records_to_update[i:i+10])
+                    for rec in records_to_update:
+                        update_record(rec['row'], rec['data'])
                         
-                cargar_todos_los_datos.clear()
+                clear_cache()
                 st.rerun()
 
             if submit_eliminar:
-                registros_a_borrar = ed1[ed1['Eliminar'] == True]['id_interno'].tolist()
+                registros_a_borrar = ed1[ed1['Eliminar'] == True]['row_number'].tolist()
                 if not registros_a_borrar:
                     st.warning("No seleccionaste ningún registro para eliminar.")
                 elif not confirmar_borrado:
                     st.error("Debes tildar la casilla de confirmación central para habilitar la eliminación.")
                 else:
-                    for id_borrar in registros_a_borrar:
-                        table.delete(id_borrar)
+                    for row_borrar in registros_a_borrar:
+                        delete_row(row_borrar)
                     st.success(f"¡Se eliminaron {len(registros_a_borrar)} registros correctamente!")
-                    cargar_todos_los_datos.clear()
+                    clear_cache()
                     st.rerun()
     else:
         st.info("No hay pendientes.")
@@ -572,12 +577,12 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 c2_cols = ['comentario', 'autonumero', 'Cliente', 'Producto', 'Ingreso', 'Serial', 'Estado del RMA', 'Resolucion']
                 deshabilitados_t2 = ['Cliente', 'autonumero', 'Producto', 'Ingreso', 'Serial', 'Estado del RMA', 'Resolucion']
             
-            st_df2 = df2[['id_interno'] + c2_cols]
+            st_df2 = df2[['row_number'] + c2_cols]
             
             ed2 = st.data_editor(
                 st_df2.style.apply(estilo_filas, axis=1), 
                 column_config={
-                    "id_interno": None, 
+                    "row_number": None, 
                     "autonumero": st.column_config.TextColumn("🔢 Nº RMA", width="small"),
                     "comentario": st.column_config.TextColumn("💬 Comentario", width="medium"),
                     "diagnostico": st.column_config.TextColumn("🔧 Diagnóstico", width="medium"),
@@ -592,14 +597,26 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
             if st.form_submit_button("ACTUALIZAR PROCESOS"):
                 records_to_update = []
                 for _, r in ed2.iterrows():
-                    orig = df2[df2['id_interno'] == r['id_interno']].iloc[0]
+                    orig = df2[df2['row_number'] == r['row_number']].iloc[0]
                     campos_a_revisar = ['comentario', 'diagnostico', 'Estado del RMA', 'Finalizado'] if st.session_state.rol == "admin" else ['comentario']
-                    up = {k: r[k] for k in campos_a_revisar if k in r and str(r[k]) != str(orig.get(k, ""))}
+                    
+                    # Convertir booleanos a strings para Google Sheets
+                    up = {}
+                    for k in campos_a_revisar:
+                        if k in r and str(r[k]) != str(orig.get(k, "")):
+                            if k in ['Aceptado', 'Finalizado']:
+                                up[k] = booleano_a_sheets(r[k])
+                            else:
+                                up[k] = r[k]
                     
                     esta_finalizando = False
-                    if st.session_state.rol == "admin" and 'Finalizado' in r and r['Finalizado'] == True and orig.get('Finalizado') == False:
-                        esta_finalizando = True
-                        up['Resolucion'] = date.today().strftime('%Y-%m-%d')
+                    if st.session_state.rol == "admin" and 'Finalizado' in r:
+                        finalizado_nuevo = es_verdadero(r.get('Finalizado', False))
+                        finalizado_original = es_verdadero(orig.get('Finalizado', False))
+                        
+                        if finalizado_nuevo and not finalizado_original:
+                            esta_finalizando = True
+                            up['Resolucion'] = date.today().strftime('%Y-%m-%d')
                     
                     if st.session_state.rol == "admin" and 'Ingreso' in r:
                         val, stt = formatear_y_validar_fecha(r['Ingreso'])
@@ -655,14 +672,15 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                             despachar_correo("EMAIL_CLIENTE", email_val, asunto_email, cuerpo_email)
                     
                     if up: 
-                        records_to_update.append({"id": r['id_interno'], "fields": up})
+                        records_to_update.append({"row": r['row_number'], "data": up})
                 
-                # OPTIMIZACIÓN DE VELOCIDAD: Guardado por lotes de 10 en 10
+                # Guardado en Google Sheets
                 if records_to_update:
-                    for i in range(0, len(records_to_update), 10):
-                        table.batch_update(records_to_update[i:i+10])
+                    for rec in records_to_update:
+                        update_record(rec['row'], rec['data'])
                         
-                cargar_todos_los_datos.clear(); st.rerun()
+                clear_cache()
+                st.rerun()
 
 # --- TABLA 3: HISTÓRICO ---
 df3 = df_all[(df_all['Aceptado'] == True) & (df_all['Finalizado'] == True)].copy().reset_index(drop=True)
@@ -672,14 +690,14 @@ with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
         
         with st.form("f3"):
             c3_cols = ['autonumero', 'comentario', 'Cliente', 'Producto', 'diagnostico', 'Estado del RMA', 'Resolucion']
-            st_df3 = df3[['id_interno'] + c3_cols]
+            st_df3 = df3[['row_number'] + c3_cols]
             
             deshabilitados_t3 = ['autonumero', 'Cliente', 'Producto', 'diagnostico', 'Estado del RMA', 'Resolucion']
             
             ed3 = st.data_editor(
                 st_df3.style.apply(estilo_filas, axis=1),
                 column_config={
-                    "id_interno": None,
+                    "row_number": None,
                     "autonumero": st.column_config.TextColumn("🔢 Nº RMA", width="small"),
                     "comentario": st.column_config.TextColumn("💬 Comentario", width="medium"),
                     "diagnostico": st.column_config.TextColumn("🔧 Diagnóstico", width="medium")
@@ -692,14 +710,15 @@ with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
             if st.form_submit_button("ACTUALIZAR COMENTARIOS HISTÓRICO"):
                 records_to_update = []
                 for _, r in ed3.iterrows():
-                    orig = df3[df3['id_interno'] == r['id_interno']].iloc[0]
+                    orig = df3[df3['row_number'] == r['row_number']].iloc[0]
                     up = {k: r[k] for k in ['comentario'] if str(r[k]) != str(orig.get(k, ""))}
                     if up:
-                        records_to_update.append({"id": r['id_interno'], "fields": up})
+                        records_to_update.append({"row": r['row_number'], "data": up})
                 
-                # OPTIMIZACIÓN DE VELOCIDAD: Guardado por lotes de 10 en 10
+                # Guardado en Google Sheets
                 if records_to_update:
-                    for i in range(0, len(records_to_update), 10):
-                        table.batch_update(records_to_update[i:i+10])
+                    for rec in records_to_update:
+                        update_record(rec['row'], rec['data'])
                         
-                cargar_todos_los_datos.clear(); st.rerun()
+                clear_cache()
+                st.rerun()

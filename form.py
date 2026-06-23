@@ -1,10 +1,11 @@
 import streamlit as st
-from pyairtable import Api
 from datetime import date
 import urllib.parse
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from sheets_operations import create_record
+from utils import validar_email
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Formulario RMA - ALTAVISTA SA", layout="centered")
@@ -59,10 +60,15 @@ def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
         if config_section not in st.secrets:
             st.error(f"Falta la seccion [{config_section}] en Secrets.")
             return False
+
+        if not validar_email(destinatario):
+            st.error(f"El destinatario '{destinatario}' no es una dirección de email válida.")
+            return False
             
         smtp_user = st.secrets[config_section]["SMTP_USER"]
         smtp_password = st.secrets[config_section]["SMTP_PASSWORD"]
         
+        # Limpieza estricta de la dirección de destino para evitar fallos de sintaxis SMTP
         destinatario_limpio = str(destinatario).strip().lower()
         
         msg = MIMEMultipart()
@@ -71,9 +77,11 @@ def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
         msg['Subject'] = asunto
         msg.attach(MIMEText(cuerpo_texto, 'plain', 'utf-8'))
         
+        # Conexión directa y cifrada mediante SSL en puerto 465
         server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15)
         server.login(smtp_user, smtp_password)
         
+        # Enviamos y recolectamos posibles rechazos inmediatos del servidor
         rechazados = server.sendmail(smtp_user, destinatario_limpio, msg.as_string())
         server.quit()
         
@@ -91,17 +99,6 @@ if 'enviado' not in st.session_state:
     st.session_state.enviado = False
 if 'resumen_rma' not in st.session_state:
     st.session_state.resumen_rma = {}
-
-# --- CREDENCIALES AIRTABLE ---
-try:
-    AIRTABLE_TOKEN = st.secrets["AIRTABLE_TOKEN"]
-    BASE_ID = st.secrets["BASE_ID"]
-    TABLE_NAME = "RMA ALTAVISTA" 
-    api = Api(AIRTABLE_TOKEN)
-    table = api.table(BASE_ID, TABLE_NAME)
-except Exception:
-    st.error("Error: No se pudieron cargar las credenciales de Airtable.")
-    st.stop()
 
 # --- CABECERA ---
 st.markdown("<h1 style='text-align: center;'>Solicitud de RMA / DEVOLUCION</h1>", unsafe_allow_html=True)
@@ -204,36 +201,55 @@ with st.container(border=True):
                         "Ingreso": str(date.today())
                     }
                     
-                    table.create(nuevo_registro)
+                    # 1. Guardar en Google Sheets
+                    if not create_record(nuevo_registro):
+                        st.error("Error al guardar en Google Sheets")
+                        st.stop()
                     
+                    # --- 2. AUTOMATIZACIONES DE CORREO INDEPENDIENTES ---
                     destinatario_cliente = email_val.strip().lower()
                     
                     if opcion_contacto == "WhatsApp":
+                        # NUEVA FUNCIÓN AGREGADA: Estructura solicitada enviada desde EMAIL_INTERNO a federico@altavistasa.com.ar
                         asunto_ws = "Caso creado - Mensaje para cliente"
                         cuerpo_ws = (
-                            f"SOLICITUD - MENSAJE PARA CLIENTE\n"
-                            f"www.wa.me/{telefono_val.strip()}\n"
+                            f"SOLICITUD \xad - MENSAJE PARA CLIENTE\n"
+                            f"wa.me/{telefono_val.strip()}\n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Has recibido una nueva solicitud de {motivo}. \n"
-                            f"Revisa los datos en Panel RMA y acepta el caso si corresponde. \n"
+                            f"Has recibido una\n"
+                            f"nueva solicitud de {motivo}. \n"
+                            f"Revisa los datos en\n"
+                            f"Panel RMA y acepta el caso si corresponde. \n"
                             f"Contacto cliente:\n"
+                            f"{nuevo_registro['Email']} \n"
                             f" \n"
-                            f" \n"
-                            f"Mensaje para el cliente: \n"
-                            f"¡Su solicitud para {motivo} ha sido cargada con éxito! \n"
+                            f"Mensaje para el\n"
+                            f"cliente: \n"
+                            f"asunto: \n"
+                            f"ALTAVISTA SA -\n"
+                            f"Solicitud {motivo} cargada con éxito. \n"
+                            f"cuerpo del correo: \n"
+                            f"¡Su solicitud para\n"
+                            f"RMA\xad\xad ha sido cargada con éxito! \n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Producto: {producto} \n"
+                            f"Producto:\n"
+                            f"{producto} \n"
                             f"Serial: {serial} \n"
                             f"Falla: {descripcion} \n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"En breve le asignaremos su número de RMA por este mismo canal. \n"
+                            f"En breve le\n"
+                            f"asignaremos su número de RMA por este mismo canal. \n"
                             f"---------------------------------------------------------------------------------------------------------------------------\n"
-                            f"Recuerde que nos puede contactar en: \n"
-                            f"WhatsApp: 3433002458 \n"
-                            f"Email: federico@altavistasa.com.ar \n"
+                            f"Recuerde que nos\n"
+                            f"puede contactar en: \n"
+                            f"WhatsApp:\n"
+                            f"3433002458 \n"
+                            f"Email:\n"
+                            f"federico@altavistasa.com.ar \n"
                             f" \n"
-                            f"También puede consultar sus casos pendientes en el siguiente enlace: \n"
-                            f"https://rma-altavista.streamlit.app/"
+                            f"También puede\n"
+                            f"consultar sus casos pendientes en el siguiente enlace: \n"
+                            f"https://rma-altavista.streamlit.app/\n"
                         )
                         
                         ok_interno = despachar_correo(
@@ -244,6 +260,7 @@ with st.container(border=True):
                         )
                         
                     else:
+                        # FLUJO TRADICIONAL: Envío de correos por separado al elegir Correo Electrónico
                         contacto_interno_texto = destinatario_cliente
                         asunto_interno = f"Solicitud {motivo} - Cliente: {cliente} - Producto: {producto}"
                         cuerpo_interno = (
@@ -259,6 +276,7 @@ with st.container(border=True):
                             cuerpo_texto=cuerpo_interno
                         )
                         
+                        # MENSAJE PARA EL CLIENTE (Solo si seleccionó Correo)
                         if ok_interno and destinatario_cliente != "":
                             asunto_cliente = f"ALTAVISTA SA - Solicitud {motivo} cargada con éxito."
                             cuerpo_cliente = (
@@ -285,6 +303,7 @@ with st.container(border=True):
                                 cuerpo_texto=cuerpo_cliente
                             )
                     
+                    # Evaluamos los estados de forma separada para no bloquear la experiencia de usuario
                     if ok_interno:
                         st.session_state.enviado = True
                         st.rerun()
