@@ -128,7 +128,7 @@ def update_record(row_number, data, sheet_name="Proveedores", worksheet_name="RM
         new_row = []
         for i, header in enumerate(headers):
             if header in data:
-                new_row.append(str(data[header]))
+                val = data[header] if isinstance(val, bool):     new_row.append("TRUE" if val else "FALSE") else:     new_row.append(str(val))
             else:
                 new_row.append(str(current_row[i]) if i < len(current_row) else "")
 
