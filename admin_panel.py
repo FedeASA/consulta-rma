@@ -585,7 +585,24 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
     if not df2.empty:
         for c in ['Compra','Ingreso','Resolucion']: 
             df2[c] = df2[c].apply(formatear_para_leer)
-        
+
+        # --- Selector de orden (fuera del form para no requerir submit) ---
+        ORDEN_OPCIONES = {
+            "🔢 Nº RMA": "autonumero",
+            "👤 Cliente": "Cliente",
+            "📦 Producto": "Producto",
+            "📅 Fecha de ingreso": "Ingreso",
+        }
+        col_ord, _ = st.columns([2, 6])
+        orden_label = col_ord.selectbox(
+            "Ordenar por", list(ORDEN_OPCIONES.keys()),
+            key="t2_orden", label_visibility="collapsed"
+        )
+        orden_col = ORDEN_OPCIONES[orden_label]
+        agrupar = orden_col != "autonumero"
+
+        df2_sorted = df2.sort_values(by=orden_col, ascending=True).reset_index(drop=True)
+
         with st.form("f2"):
             if st.session_state.rol == "admin":
                 c2_cols = ['autonumero', 'Cliente', 'Producto', 'Serial', 'Falla', 'Ingreso', 'diagnostico', 'Estado del RMA', 'Finalizado']
@@ -593,11 +610,36 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
             else:
                 c2_cols = ['comentario', 'autonumero', 'Cliente', 'Producto', 'Ingreso', 'Serial', 'Estado del RMA', 'Resolucion']
                 deshabilitados_t2 = ['Cliente', 'autonumero', 'Producto', 'Ingreso', 'Serial', 'Estado del RMA', 'Resolucion']
-            
-            st_df2 = df2[['row_number'] + c2_cols]
-            
+
+            if agrupar:
+                # Insertar filas separadoras entre grupos
+                grupos = []
+                ultimo_grupo = None
+                for _, row in df2_sorted.iterrows():
+                    valor_grupo = str(row[orden_col]).strip()
+                    if valor_grupo != ultimo_grupo:
+                        # Fila separadora: row_number=-1 para que el save la ignore
+                        sep = {col: "" for col in ['row_number'] + c2_cols}
+                        sep['row_number'] = -1
+                        sep[c2_cols[0]] = f"── {valor_grupo} ──"
+                        grupos.append(sep)
+                        ultimo_grupo = valor_grupo
+                    grupos.append(row[['row_number'] + c2_cols].to_dict())
+
+                st_df2 = pd.DataFrame(grupos)[['row_number'] + c2_cols]
+                # Las filas separadoras no son editables
+                deshabilitados_t2_con_sep = list(set(deshabilitados_t2 + c2_cols))
+            else:
+                st_df2 = df2_sorted[['row_number'] + c2_cols]
+                deshabilitados_t2_con_sep = deshabilitados_t2
+
+            def estilo_separador(row):
+                if row.get('row_number', 0) == -1:
+                    return ['background-color: #2a2a3e; color: #8ba8d0; font-weight: bold;'] * len(row)
+                return estilo_filas(row)
+
             ed2 = st.data_editor(
-                st_df2.style.apply(estilo_filas, axis=1), 
+                st_df2.style.apply(estilo_separador, axis=1),
                 column_config={
                     "row_number": None, 
                     "autonumero": st.column_config.TextColumn("🔢 Nº RMA", width="small"),
@@ -606,7 +648,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                     "Finalizado": st.column_config.CheckboxColumn("Finalizar"), 
                     "Estado del RMA": st.column_config.SelectboxColumn(options=["CAMBIO", "CREDITO", "GARANTIA OFICIAL", "GARANTIA", "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO"])
                 }, 
-                disabled=deshabilitados_t2, 
+                disabled=deshabilitados_t2_con_sep if agrupar else deshabilitados_t2,
                 hide_index=True, 
                 use_container_width=True
             )
@@ -614,7 +656,13 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
             if st.form_submit_button("ACTUALIZAR PROCESOS"):
                 records_to_update = []
                 for _, r in ed2.iterrows():
-                    orig = df2[df2['row_number'] == r['row_number']].iloc[0]
+                    # ✅ Ignorar filas separadoras de grupo
+                    if r['row_number'] == -1:
+                        continue
+                    orig_match = df2[df2['row_number'] == r['row_number']]
+                    if orig_match.empty:
+                        continue
+                    orig = orig_match.iloc[0]
                     campos_a_revisar = ['comentario', 'diagnostico', 'Estado del RMA', 'Finalizado'] if st.session_state.rol == "admin" else ['comentario']
                     
                     # Convertir booleanos a strings para Google Sheets
@@ -719,10 +767,26 @@ df3 = df_all[(df_all['Aceptado'] == True) & (df_all['Finalizado'] == True)].copy
 with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
     if not df3.empty:
         df3['Resolucion'] = df3['Resolucion'].apply(formatear_para_leer)
-        
+
+        # --- Buscador (fuera del form) ---
+        sc1, sc2, sc3, _ = st.columns([2, 2, 2, 2])
+        busq_cliente  = sc1.text_input("🔍 Cliente",   key="t3_cli",    placeholder="Buscar cliente...",  label_visibility="collapsed")
+        busq_rma      = sc2.text_input("🔍 Nº RMA",    key="t3_rma",    placeholder="Buscar Nº RMA...",   label_visibility="collapsed")
+        busq_serial   = sc3.text_input("🔍 Serial",    key="t3_serial", placeholder="Buscar serial...",   label_visibility="collapsed")
+
+        df3_filtrado = df3.copy()
+        if busq_cliente.strip():
+            df3_filtrado = df3_filtrado[df3_filtrado['Cliente'].astype(str).str.contains(busq_cliente.strip(), case=False, na=False)]
+        if busq_rma.strip():
+            df3_filtrado = df3_filtrado[df3_filtrado['autonumero'].astype(str).str.contains(busq_rma.strip(), case=False, na=False)]
+        if busq_serial.strip():
+            df3_filtrado = df3_filtrado[df3_filtrado['Serial'].astype(str).str.contains(busq_serial.strip(), case=False, na=False)]
+
+        st.caption(f"Mostrando **{len(df3_filtrado)}** de **{len(df3)}** casos resueltos")
+
         with st.form("f3"):
             c3_cols = ['autonumero', 'comentario', 'Cliente', 'Producto', 'diagnostico', 'Estado del RMA', 'Resolucion']
-            st_df3 = df3[['row_number'] + c3_cols]
+            st_df3 = df3_filtrado[['row_number'] + c3_cols]
             
             deshabilitados_t3 = ['autonumero', 'Cliente', 'Producto', 'diagnostico', 'Estado del RMA', 'Resolucion']
             
@@ -742,7 +806,7 @@ with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
             if st.form_submit_button("ACTUALIZAR COMENTARIOS HISTÓRICO"):
                 records_to_update = []
                 for _, r in ed3.iterrows():
-                    orig = df3[df3['row_number'] == r['row_number']].iloc[0]
+                    orig = df3_filtrado[df3_filtrado['row_number'] == r['row_number']].iloc[0]
                     up = {k: r[k] for k in ['comentario'] if str(r[k]) != str(orig.get(k, ""))}
                     if up:
                         records_to_update.append({"row": r['row_number'], "data": up})
