@@ -9,6 +9,7 @@ from sheets_operations import (
     get_dataframe,
     get_all_records,
     update_record,
+    batch_update_records,
     delete_row,
     find_row_by_values,
     clear_cache
@@ -552,10 +553,9 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                     if up: 
                         records_to_update.append({"row": r['row_number'], "data": up})
                         
-                # Guardado en Google Sheets
+                # ✅ CORREGIDO: un solo request en lugar de N loops
                 if records_to_update:
-                    for rec in records_to_update:
-                        update_record(rec['row'], rec['data'])
+                    batch_update_records(records_to_update)
                         
                 clear_cache()
                 st.rerun()
@@ -687,10 +687,9 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                     if up: 
                         records_to_update.append({"row": r['row_number'], "data": up})
                 
-                # Guardado en Google Sheets
+                # ✅ CORREGIDO: un solo request en lugar de N loops
                 if records_to_update:
-                    for rec in records_to_update:
-                        update_record(rec['row'], rec['data'])
+                    batch_update_records(records_to_update)
                         
                 clear_cache()
                 st.rerun()
@@ -728,10 +727,9 @@ with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
                     if up:
                         records_to_update.append({"row": r['row_number'], "data": up})
                 
-                # Guardado en Google Sheets
+                # ✅ CORREGIDO: un solo request en lugar de N loops
                 if records_to_update:
-                    for rec in records_to_update:
-                        update_record(rec['row'], rec['data'])
+                    batch_update_records(records_to_update)
                         
                 clear_cache()
                 st.rerun()
