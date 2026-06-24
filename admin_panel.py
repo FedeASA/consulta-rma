@@ -134,7 +134,7 @@ if st.sidebar.button("Cerrar Sesión", type="secondary", use_container_width=Tru
     st.rerun()
 
 # --- ENVIADOR DE CORREOS CONFIGURABLE ---
-def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
+def despachar_correo(config_section, destinatario, asunto, cuerpo, html=False):
     try:
         if config_section not in st.secrets:
             st.error(f"Falta la seccion [{config_section}] en Secrets.")
@@ -149,7 +149,11 @@ def despachar_correo(config_section, destinatario, asunto, cuerpo_texto):
         msg['From'] = smtp_user
         msg['To'] = destinatario_limpio
         msg['Subject'] = asunto
-        msg.attach(MIMEText(cuerpo_texto, 'plain', 'utf-8'))
+        # ✅ Soporta HTML o texto plano según el parámetro html=
+        if html:
+            msg.attach(MIMEText(cuerpo, 'html', 'utf-8'))
+        else:
+            msg.attach(MIMEText(cuerpo, 'plain', 'utf-8'))
         
         server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15)
         server.login(smtp_user, smtp_password)
@@ -650,23 +654,39 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                         email_val = orig.get('Email', '').strip().lower()
                         
                         if telefono_val != "":
-                            asunto_ws = "Caso finalizado - Mensaje para el cliente"
-                            cuerpo_ws = (
-                                f"RMA FINALIZADO - MENSAJE PARA CLIENTE\n"
-                                f"wa.me/{telefono_val}\n"
-                                f"---------------------------------------------------------------------------------------------------------------------------\n\n"
+                            import urllib.parse
+                            mensaje_wa = (
                                 f"Su número de caso #{rma_id} correspondiente al producto {prod_nom} ha finalizado.\n\n"
-                                f"--------------------------------------------------\n\n"
                                 f"Diagnóstico: {diag_val}\n"
                                 f"Resolución: {estado_rma}\n"
                                 f"Fecha resolución: {fecha_resolucion_str}\n\n"
-                                f"--------------------------------------------------\n\n"
-                                f"Le recomendamos contactarnos para coordinar el retiro del producto, o la gestión de la nota de crédito según corresponda.\n\n"
+                                f"Le recomendamos contactarnos para coordinar el retiro del producto "
+                                f"o la gestión de la nota de crédito según corresponda.\n\n"
                                 f"Servicio Técnico: 3433002458\n"
                                 f"Ventas: 3434469399\n"
                                 f"Email: federico@altavistasa.com.ar"
                             )
-                            despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_ws)
+                            link_wa = f"https://wa.me/{telefono_val}?text={urllib.parse.quote(mensaje_wa)}"
+                            asunto_ws = "Caso finalizado - Mensaje para el cliente"
+                            cuerpo_html = f"""<html><body>
+<p><b>RMA FINALIZADO — MENSAJE PARA CLIENTE</b></p>
+<table style="border-collapse:collapse;margin-bottom:16px;">
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Teléfono</td><td><b>{telefono_val}</b></td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Caso</td><td><b>#{rma_id}</b></td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Producto</td><td>{prod_nom}</td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Diagnóstico</td><td>{diag_val}</td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Resolución</td><td>{estado_rma}</td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Fecha</td><td>{fecha_resolucion_str}</td></tr>
+</table>
+<a href="{link_wa}" style="display:inline-block;background-color:#25D366;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;font-size:15px;">
+  📲 Abrir WhatsApp y enviar mensaje
+</a>
+<p style="margin-top:16px;color:#888;font-size:12px;">
+  Si el botón no funciona, copiá este enlace:<br>
+  <a href="{link_wa}">{link_wa}</a>
+</p>
+</body></html>"""
+                            despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_html, html=True)
                             
                         elif email_val != "":
                             asunto_email = f"ALTAVISTA SA - Su caso de {motivo_tramite} número: {rma_id} ha sido resuelto."
