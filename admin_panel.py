@@ -583,140 +583,201 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
 df2 = df_all[(df_all['Aceptado'] == True) & (df_all['Finalizado'] == False)].copy().reset_index(drop=True)
 with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
     if not df2.empty:
-        for c in ['Compra','Ingreso','Resolucion']: 
+        for c in ['Compra','Ingreso','Resolucion']:
             df2[c] = df2[c].apply(formatear_para_leer)
 
-        # --- Selector de orden (fuera del form para no requerir submit) ---
+        # --- Selector de orden ---
         ORDEN_OPCIONES = {
-            "🔢 Nº RMA": "autonumero",
-            "👤 Cliente": "Cliente",
-            "📦 Producto": "Producto",
-            "📅 Fecha de ingreso": "Ingreso",
+            "🔢 Nº RMA":           "autonumero",
+            "👤 Cliente":           "Cliente",
+            "📦 Producto":          "Producto",
+            "📅 Fecha de ingreso":  "Ingreso",
         }
-        col_ord, _ = st.columns([2, 6])
+        col_ord, col_cnt, _ = st.columns([2, 2, 4])
         orden_label = col_ord.selectbox(
             "Ordenar por", list(ORDEN_OPCIONES.keys()),
             key="t2_orden", label_visibility="collapsed"
         )
         orden_col = ORDEN_OPCIONES[orden_label]
-        agrupar = orden_col != "autonumero"
-
         df2_sorted = df2.sort_values(by=orden_col, ascending=True).reset_index(drop=True)
+        col_cnt.caption(f"**{len(df2_sorted)}** tickets en proceso")
 
-        with st.form("f2"):
-            if st.session_state.rol == "admin":
-                c2_cols = ['autonumero', 'Cliente', 'Producto', 'Serial', 'Falla', 'Ingreso', 'diagnostico', 'Estado del RMA', 'Finalizado']
-                deshabilitados_t2 = ['autonumero', 'Cliente', 'Producto', 'Serial', 'Falla']
-            else:
-                c2_cols = ['comentario', 'autonumero', 'Cliente', 'Producto', 'Ingreso', 'Serial', 'Estado del RMA', 'Resolucion']
-                deshabilitados_t2 = ['Cliente', 'autonumero', 'Producto', 'Ingreso', 'Serial', 'Estado del RMA', 'Resolucion']
+        st.markdown("""
+        <style>
+        /* Tarjeta header */
+        .rma-card-header {
+            display: flex; gap: 18px; align-items: center;
+            font-size: 13px; flex-wrap: wrap;
+        }
+        .rma-badge {
+            padding: 2px 10px; border-radius: 4px;
+            font-size: 11px; font-weight: 700; letter-spacing:.04em;
+        }
+        .badge-verde    { background:#28a745; color:#fff; }
+        .badge-naranja  { background:#fd7e14; color:#000; }
+        .badge-celeste  { background:#17a2b8; color:#fff; }
+        .badge-rojo     { background:#dc3545; color:#fff; }
+        .badge-gris     { background:#6c757d; color:#fff; }
+        .badge-pendiente{ background:#444; color:#ccc; }
+        .rma-sep { color:#555; }
+        </style>
+        """, unsafe_allow_html=True)
 
-            if agrupar:
-                # Insertar filas separadoras entre grupos
-                grupos = []
-                ultimo_grupo = None
-                for _, row in df2_sorted.iterrows():
-                    valor_grupo = str(row[orden_col]).strip()
-                    if valor_grupo != ultimo_grupo:
-                        # Fila separadora: row_number=-1 para que el save la ignore
-                        sep = {col: "" for col in ['row_number'] + c2_cols}
-                        sep['row_number'] = -1
-                        sep[c2_cols[0]] = f"── {valor_grupo} ──"
-                        grupos.append(sep)
-                        ultimo_grupo = valor_grupo
-                    grupos.append(row[['row_number'] + c2_cols].to_dict())
+        def badge_estado(estado):
+            e = str(estado).upper()
+            cls = {
+                "CAMBIO": "badge-verde", "CREDITO": "badge-verde",
+                "GARANTIA": "badge-naranja", "GARANTIA OFICIAL": "badge-naranja",
+                "NO FALLO - DEVOLVER A CLIENTE": "badge-celeste",
+                "FUERA DE GARANTIA": "badge-rojo",
+                "REPARADO": "badge-gris",
+            }.get(e, "badge-pendiente")
+            label = e if e else "SIN ESTADO"
+            return f'<span class="rma-badge {cls}">{label}</span>'
 
-                st_df2 = pd.DataFrame(grupos)[['row_number'] + c2_cols]
-                # Las filas separadoras no son editables
-                deshabilitados_t2_con_sep = list(set(deshabilitados_t2 + c2_cols))
-            else:
-                st_df2 = df2_sorted[['row_number'] + c2_cols]
-                deshabilitados_t2_con_sep = deshabilitados_t2
+        ultimo_grupo = None
 
-            def estilo_separador(row):
-                if row.get('row_number', 0) == -1:
-                    return ['background-color: #2a2a3e; color: #8ba8d0; font-weight: bold;'] * len(row)
-                return estilo_filas(row)
+        for _, row in df2_sorted.iterrows():
+            rn = row['row_number']
 
-            ed2 = st.data_editor(
-                st_df2.style.apply(estilo_separador, axis=1),
-                column_config={
-                    "row_number": None, 
-                    "autonumero": st.column_config.TextColumn("🔢 Nº RMA", width="small"),
-                    "comentario": st.column_config.TextColumn("💬 Comentario", width="medium"),
-                    "diagnostico": st.column_config.TextColumn("🔧 Diagnóstico", width="medium"),
-                    "Finalizado": st.column_config.CheckboxColumn("Finalizar"), 
-                    "Estado del RMA": st.column_config.SelectboxColumn(options=["CAMBIO", "CREDITO", "GARANTIA OFICIAL", "GARANTIA", "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO"])
-                }, 
-                disabled=deshabilitados_t2_con_sep if agrupar else deshabilitados_t2,
-                hide_index=True, 
-                use_container_width=True
+            # Separador de grupo (si no es por RMA)
+            if orden_col != "autonumero":
+                grupo_actual = str(row[orden_col]).strip()
+                if grupo_actual != ultimo_grupo:
+                    st.markdown(
+                        f"<div style='margin:18px 0 4px 0; color:#8ba8d0; "
+                        f"font-size:11px; font-weight:700; letter-spacing:.08em; "
+                        f"text-transform:uppercase; border-bottom:1px solid #2d3a52; "
+                        f"padding-bottom:4px;'>{grupo_actual}</div>",
+                        unsafe_allow_html=True
+                    )
+                    ultimo_grupo = grupo_actual
+
+            # Header de la tarjeta
+            header_html = (
+                f'<div class="rma-card-header">'
+                f'<b>#{row["autonumero"]}</b>'
+                f'<span class="rma-sep">|</span>'
+                f'<span>👤 {row["Cliente"]}</span>'
+                f'<span class="rma-sep">|</span>'
+                f'<span>📦 {row["Producto"]}</span>'
+                f'<span class="rma-sep">|</span>'
+                f'{badge_estado(row["Estado del RMA"])}'
+                f'<span class="rma-sep" style="margin-left:auto;font-size:11px;color:#666;">'
+                f'📅 {row["Ingreso"]}</span>'
+                f'</div>'
             )
-            
-            if st.form_submit_button("ACTUALIZAR PROCESOS"):
-                records_to_update = []
-                for _, r in ed2.iterrows():
-                    # ✅ Ignorar filas separadoras de grupo
-                    if r['row_number'] == -1:
-                        continue
-                    orig_match = df2[df2['row_number'] == r['row_number']]
-                    if orig_match.empty:
-                        continue
-                    orig = orig_match.iloc[0]
-                    campos_a_revisar = ['comentario', 'diagnostico', 'Estado del RMA', 'Finalizado'] if st.session_state.rol == "admin" else ['comentario']
-                    
-                    # Convertir booleanos a strings para Google Sheets
-                    up = {}
-                    for k in campos_a_revisar:
-                        if k in r and str(r[k]) != str(orig.get(k, "")):
-                           if k in ['Aceptado', 'Finalizado']:
-                                up[k] = bool(r[k])  # Pasamos el booleano puro (True/False) directo a Sheets
-                           else:
-                                up[k] = r[k]
-                    
-                    esta_finalizando = False
-                    if st.session_state.rol == "admin" and 'Finalizado' in r:
-                        finalizado_nuevo = es_verdadero(r.get('Finalizado', False))
-                        finalizado_original = es_verdadero(orig.get('Finalizado', False))
-                        
-                        if finalizado_nuevo and not finalizado_original:
+
+            with st.expander(f"#{row['autonumero']}  {row['Cliente']}  —  {row['Producto']}", expanded=False):
+                st.markdown(header_html, unsafe_allow_html=True)
+                st.markdown("<hr style='margin:8px 0;border-color:#333;'>", unsafe_allow_html=True)
+
+                # Info de solo lectura
+                ci1, ci2, ci3, ci4 = st.columns(4)
+                ci1.markdown(f"**Serial**<br>{row['Serial'] or '—'}", unsafe_allow_html=True)
+                ci2.markdown(f"**Falla**<br>{row['Falla'] or '—'}", unsafe_allow_html=True)
+                ci3.markdown(f"**Ingreso**<br>{row['Ingreso'] or '—'}", unsafe_allow_html=True)
+                ci4.markdown(f"**Compra**<br>{row['Compra'] or '—'}", unsafe_allow_html=True)
+
+                st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+                with st.form(f"form_t2_{rn}"):
+                    if st.session_state.rol == "admin":
+                        fe1, fe2 = st.columns(2)
+                        nuevo_diag = fe1.text_input(
+                            "🔧 Diagnóstico",
+                            value=str(row.get('diagnostico', '')),
+                            key=f"diag_{rn}"
+                        )
+                        nuevo_estado = fe2.selectbox(
+                            "📋 Estado del RMA",
+                            options=["", "CAMBIO", "CREDITO", "GARANTIA OFICIAL", "GARANTIA",
+                                     "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO"],
+                            index=(["", "CAMBIO", "CREDITO", "GARANTIA OFICIAL", "GARANTIA",
+                                    "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO"
+                                    ].index(str(row.get('Estado del RMA', '')))
+                                   if str(row.get('Estado del RMA', '')) in
+                                   ["", "CAMBIO", "CREDITO", "GARANTIA OFICIAL", "GARANTIA",
+                                    "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO"]
+                                   else 0),
+                            key=f"estado_{rn}"
+                        )
+                        fe3, fe4 = st.columns([3, 1])
+                        nuevo_comentario = fe3.text_input(
+                            "💬 Comentario",
+                            value=str(row.get('comentario', '')),
+                            key=f"com_{rn}"
+                        )
+                        nuevo_ingreso = fe3.text_input(
+                            "📅 Fecha Ingreso (dd/mm/aaaa)",
+                            value=str(row.get('Ingreso', '')),
+                            key=f"ing_{rn}"
+                        )
+                        nuevo_finalizado = fe4.checkbox(
+                            "✅ Finalizar ticket",
+                            value=False,
+                            key=f"fin_{rn}"
+                        )
+                    else:
+                        nuevo_comentario = st.text_input(
+                            "💬 Comentario",
+                            value=str(row.get('comentario', '')),
+                            key=f"com_{rn}"
+                        )
+                        nuevo_diag = row.get('diagnostico', '')
+                        nuevo_estado = row.get('Estado del RMA', '')
+                        nuevo_finalizado = False
+                        nuevo_ingreso = row.get('Ingreso', '')
+
+                    if st.form_submit_button("💾 Guardar cambios", use_container_width=True):
+                        up = {}
+                        orig = df2[df2['row_number'] == rn].iloc[0]
+
+                        if st.session_state.rol == "admin":
+                            if nuevo_diag != str(orig.get('diagnostico', '')):
+                                up['diagnostico'] = nuevo_diag
+                            if nuevo_estado != str(orig.get('Estado del RMA', '')):
+                                up['Estado del RMA'] = nuevo_estado
+                            if nuevo_ingreso:
+                                val_f, stt_f = formatear_y_validar_fecha(nuevo_ingreso)
+                                if stt_f == "OK" and val_f and val_f != orig.get('Ingreso', ''):
+                                    up['Ingreso'] = val_f
+
+                        if nuevo_comentario != str(orig.get('comentario', '')):
+                            up['comentario'] = nuevo_comentario
+
+                        esta_finalizando = False
+                        if st.session_state.rol == "admin" and nuevo_finalizado:
                             esta_finalizando = True
+                            up['Finalizado'] = True
                             up['Resolucion'] = date.today().strftime('%Y-%m-%d')
-                    
-                    if st.session_state.rol == "admin" and 'Ingreso' in r:
-                        val, stt = formatear_y_validar_fecha(r['Ingreso'])
-                        if stt == "OK" and val != orig.get('Ingreso', ''): 
-                            up['Ingreso'] = val
-                    
-                    if esta_finalizando:
-                        rma_id = orig.get('autonumero', '')
-                        motivo_tramite = orig.get('Motivo del trámite', 'RMA')
-                        if not motivo_tramite: motivo_tramite = "RMA"
-                        prod_nom = orig.get('Producto', '')
-                        
-                        diag_val = r.get('diagnostico', orig.get('diagnostico', ''))
-                        estado_rma = r.get('Estado del RMA', orig.get('Estado del RMA', ''))
-                        fecha_resolucion_str = date.today().strftime('%d/%m/%Y')
-                        
-                        telefono_val = orig.get('Telefono', '').strip()
-                        email_val = orig.get('Email', '').strip().lower()
-                        
-                        if telefono_val != "":
-                            import urllib.parse
-                            mensaje_wa = (
-                                f"Su número de caso #{rma_id} correspondiente al producto {prod_nom} ha finalizado.\n\n"
-                                f"Diagnóstico: {diag_val}\n"
-                                f"Resolución: {estado_rma}\n"
-                                f"Fecha resolución: {fecha_resolucion_str}\n\n"
-                                f"Le recomendamos contactarnos para coordinar el retiro del producto "
-                                f"o la gestión de la nota de crédito según corresponda.\n\n"
-                                f"Servicio Técnico: 3433002458\n"
-                                f"Ventas: 3434469399\n"
-                                f"Email: federico@altavistasa.com.ar"
-                            )
-                            link_wa = f"https://wa.me/{telefono_val}?text={urllib.parse.quote(mensaje_wa)}"
-                            asunto_ws = "Caso finalizado - Mensaje para el cliente"
-                            cuerpo_html = f"""<html><body>
+
+                        if esta_finalizando:
+                            rma_id        = orig.get('autonumero', '')
+                            motivo_tramite = orig.get('Motivo del trámite', 'RMA') or 'RMA'
+                            prod_nom      = orig.get('Producto', '')
+                            diag_val      = nuevo_diag
+                            estado_rma    = nuevo_estado
+                            fecha_resolucion_str = date.today().strftime('%d/%m/%Y')
+                            telefono_val  = str(orig.get('Telefono', '')).strip()
+                            email_val     = str(orig.get('Email', '')).strip().lower()
+
+                            if telefono_val:
+                                import urllib.parse
+                                mensaje_wa = (
+                                    f"Su número de caso #{rma_id} correspondiente al producto {prod_nom} ha finalizado.\n\n"
+                                    f"Diagnóstico: {diag_val}\n"
+                                    f"Resolución: {estado_rma}\n"
+                                    f"Fecha resolución: {fecha_resolucion_str}\n\n"
+                                    f"Le recomendamos contactarnos para coordinar el retiro del producto "
+                                    f"o la gestión de la nota de crédito según corresponda.\n\n"
+                                    f"Servicio Técnico: 3433002458\n"
+                                    f"Ventas: 3434469399\n"
+                                    f"Email: federico@altavistasa.com.ar"
+                                )
+                                link_wa = f"https://wa.me/{telefono_val}?text={urllib.parse.quote(mensaje_wa)}"
+                                asunto_ws = "Caso finalizado - Mensaje para el cliente"
+                                cuerpo_html = f"""<html><body>
 <p><b>RMA FINALIZADO — MENSAJE PARA CLIENTE</b></p>
 <table style="border-collapse:collapse;margin-bottom:16px;">
   <tr><td style="padding:4px 12px 4px 0;color:#888;">Teléfono</td><td><b>{telefono_val}</b></td></tr>
@@ -734,33 +795,33 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
   <a href="{link_wa}">{link_wa}</a>
 </p>
 </body></html>"""
-                            despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_html, html=True)
-                            
-                        elif email_val != "":
-                            asunto_email = f"ALTAVISTA SA - Su caso de {motivo_tramite} número: {rma_id} ha sido resuelto."
-                            cuerpo_email = (
-                                f"Su número de caso #{rma_id} correspondiente al producto {prod_nom} ha finalizado.\n\n"
-                                f"--------------------------------------------------\n\n"
-                                f"Diagnóstico: {diag_val}\n"
-                                f"Resolución: {estado_rma}\n"
-                                f"Fecha resolución: {fecha_resolucion_str}\n\n"
-                                f"--------------------------------------------------\n\n"
-                                f"Le recomendamos contactarnos para coordinar el retiro del producto, o la gestión de la nota de crédito según corresponda.\n\n"
-                                f"Servicio Técnico: 3433002458\n"
-                                f"Ventas: 3434469399\n"
-                                f"Email: federico@altavistasa.com.ar"
-                            )
-                            despachar_correo("EMAIL_CLIENTE", email_val, asunto_email, cuerpo_email)
-                    
-                    if up: 
-                        records_to_update.append({"row": r['row_number'], "data": up})
-                
-                # ✅ CORREGIDO: un solo request en lugar de N loops
-                if records_to_update:
-                    batch_update_records(records_to_update)
-                        
-                clear_cache()
-                st.rerun()
+                                despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_html, html=True)
+
+                            elif email_val:
+                                asunto_email = f"ALTAVISTA SA - Su caso de {motivo_tramite} número: {rma_id} ha sido resuelto."
+                                cuerpo_email = (
+                                    f"Su número de caso #{rma_id} correspondiente al producto {prod_nom} ha finalizado.\n\n"
+                                    f"--------------------------------------------------\n\n"
+                                    f"Diagnóstico: {diag_val}\n"
+                                    f"Resolución: {estado_rma}\n"
+                                    f"Fecha resolución: {fecha_resolucion_str}\n\n"
+                                    f"--------------------------------------------------\n\n"
+                                    f"Le recomendamos contactarnos para coordinar el retiro del producto, o la gestión de la nota de crédito según corresponda.\n\n"
+                                    f"Servicio Técnico: 3433002458\n"
+                                    f"Ventas: 3434469399\n"
+                                    f"Email: federico@altavistasa.com.ar"
+                                )
+                                despachar_correo("EMAIL_CLIENTE", email_val, asunto_email, cuerpo_email)
+
+                        if up:
+                            batch_update_records([{"row": rn, "data": up}])
+                            clear_cache()
+                            st.rerun()
+                        else:
+                            st.info("No hay cambios para guardar.")
+
+    else:
+        st.info("No hay tickets en proceso.")
 
 # --- TABLA 3: HISTÓRICO ---
 df3 = df_all[(df_all['Aceptado'] == True) & (df_all['Finalizado'] == True)].copy().reset_index(drop=True)
