@@ -231,7 +231,7 @@ else:
 # # --- LINKS DE ADMINISTRADOR ---
 if st.session_state.rol == "admin" or st.session_state.usuario == "edu":
     c1, c2, c3, c4, c5, c6 = st.columns(6)
-    with c1: st.link_button("🔵 Airtable", "https://airtable.com/appjlLix1HpBwnhpS/tblNnoXdIsLFN92Mr/viwLRiCozAc4oVKZY", use_container_width=True)
+    with c1: st.link_button("📋 Planilla Base", "https://docs.google.com/spreadsheets/d/1wBkIvtk_KDcPB3Jt1vBcWdVfpRPvzAevX1ooBQ550sI/edit?gid=1082756943#gid=1082756943", use_container_width=True)
     with c2: st.link_button("💻 Github", "https://github.com/FedeASA/consulta-rma", use_container_width=True)
     with c3: st.link_button("📝 Texto Clientes", "https://docs.google.com/document/d/1URgFPuVsIoR6LX2diAwFR5rWRKYvmmEwvQ7VXuxSnYg", use_container_width=True)
     with c4:
