@@ -526,25 +526,27 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                             )
                             link_wa = f"https://wa.me/{telefono_val}?text={urllib.parse.quote(mensaje_wa)}"
                             asunto_ws = "Caso aceptado - Mensaje para el cliente"
-                            cuerpo_html = f"""<html><body>
-<p><b>RMA ACEPTADO — MENSAJE PARA CLIENTE</b></p>
-<table style=\"border-collapse:collapse;margin-bottom:16px;\">
-  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Teléfono</td><td><b>{telefono_val}</b></td></tr>
-  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Caso</td><td><b>#{rma_id}</b></td></tr>
-  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Cliente</td><td>{cliente_nom}</td></tr>
-  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Producto</td><td>{prod_nom}</td></tr>
-  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Serial</td><td>{serial_num}</td></tr>
-  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Falla</td><td>{falla_desc}</td></tr>
-  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Fecha Compra</td><td>{fecha_compra_str}</td></tr>
-</table>
-<a href=\"{link_wa}\" style=\"display:inline-block;background-color:#25D366;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;font-size:15px;\">
-  📲 Abrir WhatsApp y enviar mensaje
-</a>
-<p style=\"margin-top:16px;color:#888;font-size:12px;\">
-  Si el botón no funciona, copiá este enlace:<br>
-  <a href=\"{link_wa}\">{link_wa}</a>
-</p>
-</body></html>\"""
+                            cuerpo_html = (
+                                '<html><body>'
+                                '<p><b>RMA ACEPTADO — MENSAJE PARA CLIENTE</b></p>'
+                                '<table style="border-collapse:collapse;margin-bottom:16px;">'
+                                f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Teléfono</td><td><b>{telefono_val}</b></td></tr>'
+                                f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Caso</td><td><b>#{rma_id}</b></td></tr>'
+                                f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Cliente</td><td>{cliente_nom}</td></tr>'
+                                f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Producto</td><td>{prod_nom}</td></tr>'
+                                f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Serial</td><td>{serial_num}</td></tr>'
+                                f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Falla</td><td>{falla_desc}</td></tr>'
+                                f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Fecha Compra</td><td>{fecha_compra_str}</td></tr>'
+                                '</table>'
+                                f'<a href="{link_wa}" style="display:inline-block;background-color:#25D366;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;font-size:15px;">'
+                                '  &#128242; Abrir WhatsApp y enviar mensaje'
+                                '</a>'
+                                '<p style="margin-top:16px;color:#888;font-size:12px;">'
+                                '  Si el bot&#243;n no funciona, copi&#225; este enlace:<br>'
+                                f'  <a href="{link_wa}">{link_wa}</a>'
+                                '</p>'
+                                '</body></html>'
+                            )
                             despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_html, html=True)
                             
                         elif email_val != "":
