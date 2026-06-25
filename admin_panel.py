@@ -508,29 +508,45 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                         email_val = orig.get('Email', '').strip().lower()     
                         
                         if telefono_val != "":
-                            asunto_ws = "Caso aceptado - Mensaje para el cliente"
-                            cuerpo_ws = (
-                                f"RMA ACEPTADO - MENSAJE PARA CLIENTE\n"
-                                f"wa.me/{telefono_val}\n"
-                                f"---------------------------------------------------------------------------------------------------------------------------\n"
+                            import urllib.parse
+                            mensaje_wa = (
                                 f"Su solicitud para {motivo_tramite} del producto {prod_nom} ha sido aceptada.\n\n"
-                                f"Se le asignó el siguiente número de caso: {rma_id}\n"
+                                f"Se le asignó el número de caso: #{rma_id}\n"
                                 f"Su código de cliente es: {cliente_id}\n\n"
-                                f"--------------------------------------------------\n\n"
                                 f"Detalle del caso:\n"
                                 f"Producto: {prod_nom}\n"
                                 f"Serial: {serial_num}\n"
                                 f"Falla: {falla_desc}\n"
-                                f"Fecha Compra: {fecha_compra_str}\n"
-                                f"Estado del caso: {estado_rma}\n\n"
-                                f"--------------------------------------------------\n\n"
-                                f"Le recomendamos anotar su código de usuario para poder consultar el estado de sus casos en el siguiente enlace https://rma-altavista.streamlit.app/\n\n"
+                                f"Fecha Compra: {fecha_compra_str}\n\n"
+                                f"Le recomendamos anotar su código de usuario para consultar el estado de sus casos en:\n"
+                                f"https://rma-altavista.streamlit.app/\n\n"
                                 f"Cuando tengamos novedades le notificaremos por este canal.\n\n"
-                                f"Recuerde que nos puede contactar en:\n"
-                                f"WhatsApp: 3433002458\n"
+                                f"Servicio Técnico: 3433002458\n"
+                                f"Ventas: 3434469399\n"
                                 f"Email: federico@altavistasa.com.ar"
                             )
-                            despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_ws)
+                            link_wa = f"https://wa.me/{telefono_val}?text={urllib.parse.quote(mensaje_wa)}"
+                            asunto_ws = "Caso aceptado - Mensaje para el cliente"
+                            cuerpo_html = f"""<html><body>
+<p><b>RMA ACEPTADO — MENSAJE PARA CLIENTE</b></p>
+<table style="border-collapse:collapse;margin-bottom:16px;">
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Teléfono</td><td><b>{telefono_val}</b></td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Caso</td><td><b>#{rma_id}</b></td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Cliente</td><td>{cliente_nom}</td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Producto</td><td>{prod_nom}</td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Serial</td><td>{serial_num}</td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Falla</td><td>{falla_desc}</td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#888;">Fecha Compra</td><td>{fecha_compra_str}</td></tr>
+</table>
+<a href="{link_wa}" style="display:inline-block;background-color:#25D366;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;font-size:15px;">
+  📲 Abrir WhatsApp y enviar mensaje
+</a>
+<p style="margin-top:16px;color:#888;font-size:12px;">
+  Si el botón no funciona, copiá este enlace:<br>
+  <a href="{link_wa}">{link_wa}</a>
+</p>
+</body></html>"""
+                            despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_html, html=True)
                             
                         elif email_val != "":
                             asunto_email = f"ALTAVISTA SA – {motivo_tramite} - Caso aceptado."
