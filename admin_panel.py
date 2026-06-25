@@ -91,6 +91,27 @@ st.markdown("""
         .menu-dropdown:hover .menu-contenido {
             display: block;
         }
+
+        /* ── Tabla 2: tarjetas con color alterno y sin espaciado extra ── */
+        div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] > div {
+            margin-bottom: 2px !important;
+        }
+        div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] > div:nth-child(odd) > div[data-testid="stExpander"] {
+            background-color: #1e3a5f !important;
+            border-radius: 6px;
+        }
+        div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] > div:nth-child(odd) > div[data-testid="stExpander"] details summary {
+            background-color: #1e3a5f !important;
+            border-radius: 6px;
+        }
+        div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] > div:nth-child(even) > div[data-testid="stExpander"] {
+            background-color: #2d3748 !important;
+            border-radius: 6px;
+        }
+        div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] > div:nth-child(even) > div[data-testid="stExpander"] details summary {
+            background-color: #2d3748 !important;
+            border-radius: 6px;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -473,7 +494,7 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                     for k in campos_a_revisar:
                         if k in r and str(r[k]) != str(orig.get(k, "")):
                            if k in ['Aceptado', 'Finalizado']:
-                                up[k] = bool(r[k])  # Pasamos el booleano puro (True/False) directo a Sheets
+                                up[k] = booleano_a_sheets(bool(r[k]))  # Convertimos a formato que Sheets muestra como casilla
                            else:
                                 up[k] = r[k]
                     
@@ -510,27 +531,27 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                             import urllib.parse
                             mensaje_wa = (
                                 f"Su solicitud para {motivo_tramite} del producto {prod_nom} ha sido aceptada.\n\n"
-                                f"Se le asignó el número de caso: #{rma_id}\n"
-                                f"Su código de cliente es: {cliente_id}\n\n"
+                                f"Se le asign\u00f3 el n\u00famero de caso: #{rma_id}\n"
+                                f"Su c\u00f3digo de cliente es: {cliente_id}\n\n"
                                 f"Detalle del caso:\n"
                                 f"Producto: {prod_nom}\n"
                                 f"Serial: {serial_num}\n"
                                 f"Falla: {falla_desc}\n"
                                 f"Fecha Compra: {fecha_compra_str}\n\n"
-                                f"Le recomendamos anotar su código de usuario para consultar el estado de sus casos en:\n"
+                                f"Le recomendamos anotar su c\u00f3digo de usuario para consultar el estado de sus casos en:\n"
                                 f"https://rma-altavista.streamlit.app/\n\n"
                                 f"Cuando tengamos novedades le notificaremos por este canal.\n\n"
-                                f"Servicio Técnico: 3433002458\n"
+                                f"Servicio T\u00e9cnico: 3433002458\n"
                                 f"Ventas: 3434469399\n"
                                 f"Email: federico@altavistasa.com.ar"
                             )
                             link_wa = f"https://wa.me/{telefono_val}?text={urllib.parse.quote(mensaje_wa)}"
                             asunto_ws = "Caso aceptado - Mensaje para el cliente"
-                            cuerpo_html = (
+                            cuerpo_html_acc = (
                                 '<html><body>'
-                                '<p><b>RMA ACEPTADO — MENSAJE PARA CLIENTE</b></p>'
+                                '<p><b>RMA ACEPTADO &#8212; MENSAJE PARA CLIENTE</b></p>'
                                 '<table style="border-collapse:collapse;margin-bottom:16px;">'
-                                f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Teléfono</td><td><b>{telefono_val}</b></td></tr>'
+                                f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Tel&eacute;fono</td><td><b>{telefono_val}</b></td></tr>'
                                 f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Caso</td><td><b>#{rma_id}</b></td></tr>'
                                 f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Cliente</td><td>{cliente_nom}</td></tr>'
                                 f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Producto</td><td>{prod_nom}</td></tr>'
@@ -542,12 +563,12 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                                 '  &#128242; Abrir WhatsApp y enviar mensaje'
                                 '</a>'
                                 '<p style="margin-top:16px;color:#888;font-size:12px;">'
-                                '  Si el bot&#243;n no funciona, copi&#225; este enlace:<br>'
+                                '  Si el bot&oacute;n no funciona, copi&aacute; este enlace:<br>'
                                 f'  <a href="{link_wa}">{link_wa}</a>'
                                 '</p>'
                                 '</body></html>'
                             )
-                            despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_html, html=True)
+                            despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_html_acc, html=True)
                             
                         elif email_val != "":
                             asunto_email = f"ALTAVISTA SA – {motivo_tramite} - Caso aceptado."
@@ -662,7 +683,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 grupo_actual = str(row[orden_col]).strip()
                 if grupo_actual != ultimo_grupo:
                     st.markdown(
-                        f"<div style='margin:18px 0 4px 0; color:#8ba8d0; "
+                        f"<div style='margin:4px 0 2px 0; color:#8ba8d0; "
                         f"font-size:11px; font-weight:700; letter-spacing:.08em; "
                         f"text-transform:uppercase; border-bottom:1px solid #2d3a52; "
                         f"padding-bottom:4px;'>{grupo_actual}</div>",
@@ -766,7 +787,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                         esta_finalizando = False
                         if st.session_state.rol == "admin" and nuevo_finalizado:
                             esta_finalizando = True
-                            up['Finalizado'] = True
+                            up['Finalizado'] = booleano_a_sheets(True)
                             up['Resolucion'] = date.today().strftime('%Y-%m-%d')
 
                         if esta_finalizando:
