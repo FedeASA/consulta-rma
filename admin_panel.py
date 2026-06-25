@@ -455,6 +455,11 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
             
             if submit_guardar and st.session_state.rol == "admin":
                 records_to_update = []
+                # Calculamos el máximo autonumero UNA SOLA VEZ antes del loop
+                # para evitar duplicados cuando se aceptan varios tickets juntos.
+                _numeros_existentes = pd.to_numeric(df_all['autonumero'], errors='coerce').dropna()
+                _proximo_rma = int(_numeros_existentes.max() + 1) if not _numeros_existentes.empty else 1
+
                 for _, r in ed1.iterrows():
                     orig = df1[df1['row_number'] == r['row_number']].iloc[0]
                     
@@ -487,20 +492,14 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                         motivo_tramite = orig.get('Motivo del trámite', 'RMA')
                         if not motivo_tramite: motivo_tramite = "RMA"
                         
-                        # CÓDIGO CORREGIDO Y ALINEADO
+                        # Usamos el contador pre-calculado antes del loop para evitar
+                        # duplicados cuando se aceptan varios tickets en el mismo batch.
                         rma_id = str(orig.get('autonumero', '')).strip()
 
-                        # Si no tiene número de RMA, calculamos el siguiente sumando 1 al máximo histórico
                         if rma_id in ["", "nan", "None"]:
-                            # Convertimos la columna a números, ignorando textos y vacíos
-                            numeros_existentes = pd.to_numeric(df_all['autonumero'], errors='coerce').dropna()
-                            if not numeros_existentes.empty:
-                                rma_id = str(int(numeros_existentes.max() + 1))
-                            else:
-                                rma_id = "1" # Por si la tabla estuviera completamente vacía
-                            
-                            # ¡Clave! Lo guardamos en el diccionario 'up' para que se escriba en Google Sheets
-                            up['autonumero'] = rma_id 
+                            rma_id = str(_proximo_rma)
+                            up['autonumero'] = rma_id
+                            _proximo_rma += 1  # Incrementamos para el siguiente ticket del mismo batch
 
                         cliente_id = cliente_nom
                         estado_rma = "PENDIENTE"
@@ -529,23 +528,23 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                             asunto_ws = "Caso aceptado - Mensaje para el cliente"
                             cuerpo_html = f"""<html><body>
 <p><b>RMA ACEPTADO — MENSAJE PARA CLIENTE</b></p>
-<table style="border-collapse:collapse;margin-bottom:16px;">
-  <tr><td style="padding:4px 12px 4px 0;color:#888;">Teléfono</td><td><b>{telefono_val}</b></td></tr>
-  <tr><td style="padding:4px 12px 4px 0;color:#888;">Caso</td><td><b>#{rma_id}</b></td></tr>
-  <tr><td style="padding:4px 12px 4px 0;color:#888;">Cliente</td><td>{cliente_nom}</td></tr>
-  <tr><td style="padding:4px 12px 4px 0;color:#888;">Producto</td><td>{prod_nom}</td></tr>
-  <tr><td style="padding:4px 12px 4px 0;color:#888;">Serial</td><td>{serial_num}</td></tr>
-  <tr><td style="padding:4px 12px 4px 0;color:#888;">Falla</td><td>{falla_desc}</td></tr>
-  <tr><td style="padding:4px 12px 4px 0;color:#888;">Fecha Compra</td><td>{fecha_compra_str}</td></tr>
+<table style=\"border-collapse:collapse;margin-bottom:16px;\">
+  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Teléfono</td><td><b>{telefono_val}</b></td></tr>
+  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Caso</td><td><b>#{rma_id}</b></td></tr>
+  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Cliente</td><td>{cliente_nom}</td></tr>
+  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Producto</td><td>{prod_nom}</td></tr>
+  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Serial</td><td>{serial_num}</td></tr>
+  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Falla</td><td>{falla_desc}</td></tr>
+  <tr><td style=\"padding:4px 12px 4px 0;color:#888;\">Fecha Compra</td><td>{fecha_compra_str}</td></tr>
 </table>
-<a href="{link_wa}" style="display:inline-block;background-color:#25D366;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;font-size:15px;">
+<a href=\"{link_wa}\" style=\"display:inline-block;background-color:#25D366;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;font-size:15px;\">
   📲 Abrir WhatsApp y enviar mensaje
 </a>
-<p style="margin-top:16px;color:#888;font-size:12px;">
+<p style=\"margin-top:16px;color:#888;font-size:12px;\">
   Si el botón no funciona, copiá este enlace:<br>
-  <a href="{link_wa}">{link_wa}</a>
+  <a href=\"{link_wa}\">{link_wa}</a>
 </p>
-</body></html>"""
+</body></html>\"""
                             despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar", asunto_ws, cuerpo_html, html=True)
                             
                         elif email_val != "":
