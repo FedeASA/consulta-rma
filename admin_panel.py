@@ -92,25 +92,9 @@ st.markdown("""
             display: block;
         }
 
-        /* ── Tabla 2: tarjetas con color alterno y sin espaciado extra ── */
+        /* ── Tabla 2: reduce espacio entre tarjetas ── */
         div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] > div {
             margin-bottom: 2px !important;
-        }
-        div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] > div:nth-child(odd) > div[data-testid="stExpander"] {
-            background-color: #1e3a5f !important;
-            border-radius: 6px;
-        }
-        div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] > div:nth-child(odd) > div[data-testid="stExpander"] details summary {
-            background-color: #1e3a5f !important;
-            border-radius: 6px;
-        }
-        div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] > div:nth-child(even) > div[data-testid="stExpander"] {
-            background-color: #2d3748 !important;
-            border-radius: 6px;
-        }
-        div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] > div:nth-child(even) > div[data-testid="stExpander"] details summary {
-            background-color: #2d3748 !important;
-            border-radius: 6px;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -476,8 +460,6 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
             
             if submit_guardar and st.session_state.rol == "admin":
                 records_to_update = []
-                # Calculamos el máximo autonumero UNA SOLA VEZ antes del loop
-                # para evitar duplicados cuando se aceptan varios tickets juntos.
                 _numeros_existentes = pd.to_numeric(df_all['autonumero'], errors='coerce').dropna()
                 _proximo_rma = int(_numeros_existentes.max() + 1) if not _numeros_existentes.empty else 1
 
@@ -494,7 +476,7 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                     for k in campos_a_revisar:
                         if k in r and str(r[k]) != str(orig.get(k, "")):
                            if k in ['Aceptado', 'Finalizado']:
-                                up[k] = booleano_a_sheets(bool(r[k]))  # Convertimos a formato que Sheets muestra como casilla
+                                up[k] = booleano_a_sheets(bool(r[k]))
                            else:
                                 up[k] = r[k]
                     
@@ -513,14 +495,11 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                         motivo_tramite = orig.get('Motivo del trámite', 'RMA')
                         if not motivo_tramite: motivo_tramite = "RMA"
                         
-                        # Usamos el contador pre-calculado antes del loop para evitar
-                        # duplicados cuando se aceptan varios tickets en el mismo batch.
                         rma_id = str(orig.get('autonumero', '')).strip()
-
                         if rma_id in ["", "nan", "None"]:
                             rma_id = str(_proximo_rma)
                             up['autonumero'] = rma_id
-                            _proximo_rma += 1  # Incrementamos para el siguiente ticket del mismo batch
+                            _proximo_rma += 1
 
                         cliente_id = cliente_nom
                         estado_rma = "PENDIENTE"
@@ -538,7 +517,7 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                                 f"Serial: {serial_num}\n"
                                 f"Falla: {falla_desc}\n"
                                 f"Fecha Compra: {fecha_compra_str}\n\n"
-                                f"Le recomendamos anotar su c\u00f3digo de usuario para consultar el estado de sus casos en:\n"
+                                f"Le recomendamos anotar su c\u00f3digo de usuario para consultar el estado en:\n"
                                 f"https://rma-altavista.streamlit.app/\n\n"
                                 f"Cuando tengamos novedades le notificaremos por este canal.\n\n"
                                 f"Servicio T\u00e9cnico: 3433002458\n"
@@ -857,6 +836,40 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                             st.rerun()
                         else:
                             st.info("No hay cambios para guardar.")
+
+        # ── Colores alternados por JS (inmune a separadores de grupo) ──
+        import streamlit.components.v1 as components
+        components.html("""
+<script>
+function colorCards() {
+    var doc = window.parent.document;
+    // Busca todos los expanders de nivel 2 (tarjetas dentro de la Tabla 2)
+    var outer = doc.querySelectorAll('[data-testid="stExpander"]');
+    var cards = null;
+    for (var i = 0; i < outer.length; i++) {
+        var nested = outer[i].querySelectorAll('[data-testid="stExpander"]');
+        if (nested.length >= 1 && cards === null) {
+            cards = nested;
+        }
+    }
+    if (!cards) return;
+    var colors = ['#0d2b45', '#3a4f63'];
+    for (var j = 0; j < cards.length; j++) {
+        var el = cards[j];
+        var col = colors[j % 2];
+        el.style.backgroundColor = col;
+        el.style.borderRadius = '6px';
+        var summary = el.querySelector('summary');
+        if (summary) { summary.style.backgroundColor = col; summary.style.borderRadius = '6px'; }
+    }
+}
+colorCards();
+setTimeout(colorCards, 150);
+setTimeout(colorCards, 500);
+// Re-aplicar cuando el usuario expande/colapsa una tarjeta
+window.parent.document.addEventListener('click', function() { setTimeout(colorCards, 80); });
+</script>
+""", height=0)
 
     else:
         st.info("No hay tickets en proceso.")
