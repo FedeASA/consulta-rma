@@ -15,6 +15,7 @@ from sheets_operations import (
     clear_cache
 )
 from utils import es_verdadero, booleano_a_sheets
+from sso import generar_token
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Panel RMA", layout="wide")
@@ -122,8 +123,8 @@ def login():
                     st.rerun()
                 else:
                     st.error("Usuario o contraseña incorrectos.")
-            except Exception:
-                st.error("Error de configuración: No se encontró la sección [USUARIOS] in los Secrets.")
+            except Exception as e:
+                st.error(f"Error de configuración: {e}")
 
 if not st.session_state.autenticado:
     login()
@@ -207,10 +208,14 @@ def formatear_y_validar_fecha(fecha_texto):
         except ValueError: continue
     return None, "FORMATO_INVALIDO"
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=60, show_spinner=False)
 def cargar_todos_los_datos():
     """Carga todos los registros de Google Sheets"""
-    df = get_dataframe()
+    try:
+        df = get_dataframe()
+    except Exception as e:
+        st.error(f"❌ Error al conectar con Google Sheets: {e}")
+        st.stop()
     if df.empty:
         return pd.DataFrame()
     
@@ -235,7 +240,10 @@ if not df_all.empty:
             df_all[col_txt] = df_all[col_txt].fillna("").apply(lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else str(x))
             df_all[col_txt] = df_all[col_txt].apply(lambda x: "" if str(x).strip() in ["None", "none", "nan", "NaN", ""] else str(x).strip())
 else:
-    st.warning("No hay datos para mostrar.")
+    st.error("⚠️ No se pudieron cargar datos desde Google Sheets. Verificá las credenciales.")
+    if st.button("🔄 Reintentar"):
+        st.cache_data.clear()
+        st.rerun()
     st.stop()
 
 # # --- LINKS DE ADMINISTRADOR ---
@@ -256,7 +264,10 @@ if st.session_state.rol == "admin" or st.session_state.usuario == "edu":
             </div>
         """, unsafe_allow_html=True)
     with c5: st.link_button("📊 Excel Viejo", "https://docs.google.com/spreadsheets/d/17zp1kEZhVBw1Ul3HkoDZhyQ2IYthjNGS", use_container_width=True)
-    with c6: st.link_button("🔁 Proveedores - RMA", "https://panelproveedores.streamlit.app/", use_container_width=True)
+    with c6:
+        _sso_token = generar_token(st.session_state.usuario, st.session_state.rol)
+        _url_proveedores = f"https://panelproveedores.streamlit.app/?sso={_sso_token}"
+        st.link_button("🔁 Proveedores - RMA", _url_proveedores, use_container_width=True)
 
 # --- BOTONES DE ACCIÓN SUPERIORES ---
 col_rep1, col_btn_refresh, col_rep2 = st.columns([1, 1, 3])
