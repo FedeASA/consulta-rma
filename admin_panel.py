@@ -16,6 +16,30 @@ from sheets_operations import (
 )
 from utils import es_verdadero, booleano_a_sheets
 from sso import generar_token
+from streamlit_cookies_controller import CookieController
+import hashlib
+
+cookies = CookieController()
+
+def generar_hash_sesion(usuario):
+    secreto = st.secrets.get("COOKIE_SECRET", "cambiar_este_secreto")
+    hoy = date.today().isoformat()
+    return hashlib.sha256(f"{usuario}-{hoy}-{secreto}".encode()).hexdigest()
+
+def normalizar_telefono(telefono_raw):
+    """Limpia el teléfono: quita espacios, guiones y prefijos de país,
+    dejando 10 dígitos consecutivos."""
+    if not telefono_raw or str(telefono_raw).strip() in ["None", "none", "nan", "NaN", ""]:
+        return ""
+
+    digitos = "".join(c for c in str(telefono_raw) if c.isdigit())
+
+    for prefijo in ["00549", "0054", "549", "54"]:
+        if digitos.startswith(prefijo):
+            digitos = digitos[len(prefijo):]
+            break
+
+    return digitos
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Panel RMA", layout="wide")
@@ -105,6 +129,20 @@ if "autenticado" not in st.session_state:
     st.session_state.usuario = ""
     st.session_state.rol = ""
 
+    # --- Intentar restaurar sesión desde cookie ---
+    cookie_usuario = cookies.get("rma_usuario")
+    cookie_token = cookies.get("rma_token")
+    if cookie_usuario and cookie_token:
+        if cookie_token == generar_hash_sesion(cookie_usuario):
+            try:
+                usuarios_secretos = st.secrets["USUARIOS"]
+                if cookie_usuario in usuarios_secretos:
+                    st.session_state.autenticado = True
+                    st.session_state.usuario = cookie_usuario
+                    st.session_state.rol = "admin" if cookie_usuario == "admin" else "user"
+            except Exception:
+                pass
+
 def login():
     st.markdown("<h2 style='text-align: center;'>Control de Acceso - Panel RMA</h2>", unsafe_allow_html=True)
     with st.form("formulario_login"):
@@ -119,6 +157,8 @@ def login():
                     st.session_state.autenticado = True
                     st.session_state.usuario = usuario
                     st.session_state.rol = "admin" if usuario == "admin" else "user"
+                    cookies.set("rma_usuario", usuario)
+                    cookies.set("rma_token", generar_hash_sesion(usuario))
                     st.success("¡Acceso concedido!")
                     st.rerun()
                 else:
@@ -134,6 +174,8 @@ if not st.session_state.autenticado:
 st.sidebar.write(f"Conectado como: **{st.session_state.usuario}** ({st.session_state.rol.upper()})")
 
 if st.sidebar.button("Cerrar Sesión", type="secondary", use_container_width=True):
+    cookies.remove("rma_usuario")
+    cookies.remove("rma_token")
     st.session_state.autenticado = False
     st.session_state.usuario = ""
     st.session_state.rol = ""
@@ -514,8 +556,10 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
 
                         cliente_id = cliente_nom
                         estado_rma = "PENDIENTE"
-                        telefono_val = orig.get('Telefono', '').strip()
+                        telefono_val = normalizar_telefono(orig.get('Telefono', ''))
                         email_val = orig.get('Email', '').strip().lower()     
+                        if telefono_val and telefono_val != str(orig.get('Telefono', '')).strip():
+                            up['Telefono'] = telefono_val
                         
                         if telefono_val != "":
                             import urllib.parse
@@ -787,8 +831,10 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                             diag_val      = nuevo_diag
                             estado_rma    = nuevo_estado
                             fecha_resolucion_str = date.today().strftime('%d/%m/%Y')
-                            telefono_val  = str(orig.get('Telefono', '')).strip()
+                            telefono_val  = normalizar_telefono(orig.get('Telefono', ''))
                             email_val     = str(orig.get('Email', '')).strip().lower()
+                            if telefono_val and telefono_val != str(orig.get('Telefono', '')).strip():
+                                up['Telefono'] = telefono_val
 
                             if telefono_val:
                                 import urllib.parse
