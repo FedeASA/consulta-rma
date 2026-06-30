@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import io
+import time
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -128,10 +129,22 @@ if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
     st.session_state.usuario = ""
     st.session_state.rol = ""
+    st.session_state.cookie_check_done = False
+    st.session_state.cookie_retry = 0
 
-    # --- Intentar restaurar sesión desde cookie ---
+# --- Intentar restaurar sesión desde cookie (con reintento por carga del componente) ---
+if not st.session_state.autenticado and not st.session_state.cookie_check_done:
     cookie_usuario = cookies.get("rma_usuario")
     cookie_token = cookies.get("rma_token")
+
+    if cookie_usuario is None and cookie_token is None and st.session_state.cookie_retry < 4:
+        # El componente de cookies todavía no terminó de cargar en este render; reintentamos.
+        st.session_state.cookie_retry += 1
+        time.sleep(0.3)
+        st.rerun()
+
+    st.session_state.cookie_check_done = True
+
     if cookie_usuario and cookie_token:
         if cookie_token == generar_hash_sesion(cookie_usuario):
             try:
@@ -157,8 +170,8 @@ def login():
                     st.session_state.autenticado = True
                     st.session_state.usuario = usuario
                     st.session_state.rol = "admin" if usuario == "admin" else "user"
-                    cookies.set("rma_usuario", usuario)
-                    cookies.set("rma_token", generar_hash_sesion(usuario))
+                    cookies.set("rma_usuario", usuario, max_age=60 * 60 * 24)
+                    cookies.set("rma_token", generar_hash_sesion(usuario), max_age=60 * 60 * 24)
                     st.success("¡Acceso concedido!")
                     st.rerun()
                 else:
