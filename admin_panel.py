@@ -174,8 +174,11 @@ def login():
                     st.session_state.autenticado = True
                     st.session_state.usuario = usuario
                     st.session_state.rol = "admin" if usuario == "admin" else "user"
-                    cookies.set("rma_usuario", usuario, max_age=60 * 60 * 24)
-                    cookies.set("rma_token", generar_hash_sesion(usuario), max_age=60 * 60 * 24)
+                    try:
+                        cookies.set("rma_usuario", usuario, max_age=60 * 60 * 24)
+                        cookies.set("rma_token", generar_hash_sesion(usuario), max_age=60 * 60 * 24)
+                    except Exception:
+                        pass  # El componente aún no está listo; la sesión igual queda en session_state
                     st.success("¡Acceso concedido!")
                     st.rerun()
                 else:
@@ -191,8 +194,11 @@ if not st.session_state.autenticado:
 st.sidebar.write(f"Conectado como: **{st.session_state.usuario}** ({st.session_state.rol.upper()})")
 
 if st.sidebar.button("Cerrar Sesión", type="secondary", use_container_width=True):
-    cookies.remove("rma_usuario")
-    cookies.remove("rma_token")
+    try:
+        cookies.remove("rma_usuario")
+        cookies.remove("rma_token")
+    except Exception:
+        pass
     st.session_state.autenticado = False
     st.session_state.usuario = ""
     st.session_state.rol = ""
