@@ -134,8 +134,12 @@ if "autenticado" not in st.session_state:
 
 # --- Intentar restaurar sesión desde cookie (con reintento por carga del componente) ---
 if not st.session_state.autenticado and not st.session_state.cookie_check_done:
-    cookie_usuario = cookies.get("rma_usuario")
-    cookie_token = cookies.get("rma_token")
+    try:
+        cookie_usuario = cookies.get("rma_usuario")
+        cookie_token = cookies.get("rma_token")
+    except Exception:
+        cookie_usuario = None
+        cookie_token = None
 
     if cookie_usuario is None and cookie_token is None and st.session_state.cookie_retry < 4:
         # El componente de cookies todavía no terminó de cargar en este render; reintentamos.
