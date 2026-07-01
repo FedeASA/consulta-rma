@@ -960,6 +960,18 @@ with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
     if not df3.empty:
         df3['Resolucion'] = df3['Resolucion'].apply(formatear_para_leer)
 
+        # --- Leyenda de colores ---
+        st.markdown("""
+        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; align-items:center;">
+            <span style="font-size:12px; color:#aaa; margin-right:4px;">Referencias:</span>
+            <span style="background:#28a745; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🟢 Cambio / Crédito</span>
+            <span style="background:#fd7e14; color:black; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🟠 Garantía / Garantía Oficial</span>
+            <span style="background:#17a2b8; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🔵 No falló – Devolver a cliente</span>
+            <span style="background:#dc3545; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🔴 Fuera de garantía</span>
+            <span style="background:#6c757d; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">⚪ Reparado</span>
+        </div>
+        """, unsafe_allow_html=True)
+
         # --- Buscador (fuera del form) ---
         sc1, sc2, sc3, _ = st.columns([2, 2, 2, 2])
         busq_cliente  = sc1.text_input("🔍 Cliente",   key="t3_cli",    placeholder="Buscar cliente...",  label_visibility="collapsed")
