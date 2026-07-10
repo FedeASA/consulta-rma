@@ -5,12 +5,15 @@ sheets_operations.py - Módulo para operaciones con Google Sheets
 import gspread
 from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 import pandas as pd
 import streamlit as st
 from datetime import datetime
 import json
 import os
 import time
+import io
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
@@ -18,7 +21,7 @@ SCOPES = [
 ]
 
 @st.cache_resource
-def get_sheets_client():
+def get_google_credentials():
     try:
         if "GOOGLE_CREDS" in st.secrets:
             creds_dict = st.secrets["GOOGLE_CREDS"]
@@ -38,12 +41,91 @@ def get_sheets_client():
             st.stop()
 
     try:
-        credentials = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    except Exception as e:
+        st.error(f"❌ Error al autenticar con Google: {e}")
+        st.stop()
+
+
+@st.cache_resource
+def get_sheets_client():
+    credentials = get_google_credentials()
+    try:
         client = gspread.authorize(credentials)
         return client
     except Exception as e:
         st.error(f"❌ Error al autenticar con Google: {e}")
         st.stop()
+
+
+# --- GOOGLE DRIVE: fotos adjuntas de los RMA ---
+
+@st.cache_resource
+def get_drive_service():
+    credentials = get_google_credentials()
+    try:
+        return build("drive", "v3", credentials=credentials, cache_discovery=False)
+    except Exception as e:
+        st.error(f"❌ Error al conectar con Google Drive: {e}")
+        st.stop()
+
+
+def _get_drive_folder_id():
+    try:
+        return st.secrets["DRIVE_FOTOS_RMA_FOLDER_ID"]
+    except Exception:
+        st.error(
+            "❌ Falta configurar 'DRIVE_FOTOS_RMA_FOLDER_ID' en Secrets con el ID "
+            "de la carpeta de Drive donde se guardan las fotos de los RMA."
+        )
+        st.stop()
+
+
+def subir_foto_a_drive(bytes_imagen, nombre_archivo):
+    """Sube una foto (bytes JPEG) a la carpeta de Drive configurada.
+    Devuelve el ID del archivo en Drive, o None si falló."""
+    try:
+        servicio = get_drive_service()
+        folder_id = _get_drive_folder_id()
+        metadata = {"name": nombre_archivo, "parents": [folder_id]}
+        media = MediaIoBaseUpload(io.BytesIO(bytes_imagen), mimetype="image/jpeg", resumable=False)
+        archivo = _safe_api_call(lambda: servicio.files().create(
+            body=metadata, media_body=media, fields="id"
+        ).execute())
+        return archivo.get("id")
+    except Exception as e:
+        st.error(f"❌ Error al subir la foto a Drive: {e}")
+        return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def descargar_foto_de_drive(file_id):
+    """Descarga los bytes de una foto guardada en Drive (cacheado 1 hora)."""
+    if not file_id:
+        return None
+    try:
+        servicio = get_drive_service()
+        solicitud = servicio.files().get_media(fileId=file_id)
+        buffer = io.BytesIO()
+        downloader = MediaIoBaseDownload(buffer, solicitud)
+        listo = False
+        while not listo:
+            _, listo = downloader.next_chunk()
+        return buffer.getvalue()
+    except Exception:
+        return None
+
+
+def eliminar_foto_de_drive(file_id):
+    """Elimina un archivo de Drive por su ID. No lanza error si ya no existe."""
+    if not file_id:
+        return True
+    try:
+        servicio = get_drive_service()
+        _safe_api_call(lambda: servicio.files().delete(fileId=file_id).execute())
+        return True
+    except Exception:
+        return False
 
 
 def get_sheet(sheet_name="Proveedores", worksheet_name="RMA ALTAVISTA"):

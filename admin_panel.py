@@ -13,7 +13,9 @@ from sheets_operations import (
     batch_update_records,
     delete_row,
     find_row_by_values,
-    clear_cache
+    clear_cache,
+    descargar_foto_de_drive,
+    eliminar_foto_de_drive
 )
 from utils import es_verdadero, booleano_a_sheets
 from sso import generar_token
@@ -292,7 +294,7 @@ df_all = cargar_todos_los_datos()
 
 # --- VERIFICACIÓN Y COMPATIBILIDAD DE COLUMNAS (AL INICIO PARA EVITAR DESFASES) ---
 if not df_all.empty:
-    columnas_requeridas = ['Aceptado', 'Finalizado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR']
+    columnas_requeridas = ['Aceptado', 'Finalizado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']
     for col in columnas_requeridas:
         if col not in df_all.columns: 
             df_all[col] = False if col in ['Aceptado', 'Finalizado'] else ""
@@ -300,7 +302,7 @@ if not df_all.empty:
             if col in ['Aceptado', 'Finalizado']:
                 df_all[col] = df_all[col].apply(lambda x: es_verdadero(x))
 
-    for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR']:
+    for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']:
         if col_txt in df_all.columns:
             df_all[col_txt] = df_all[col_txt].fillna("").apply(lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else str(x))
             df_all[col_txt] = df_all[col_txt].apply(lambda x: "" if str(x).strip() in ["None", "none", "nan", "NaN", ""] else str(x).strip())
@@ -310,6 +312,58 @@ else:
         st.cache_data.clear()
         st.rerun()
     st.stop()
+
+# --- LIMPIEZA AUTOMÁTICA DE FOTOS VENCIDAS ---
+# Borra de Drive (y limpia en la planilla) las fotos de casos finalizados
+# hace más de DIAS_RETENCION_FOTOS días, para no acumular espacio en Drive.
+DIAS_RETENCION_FOTOS = 30
+
+def limpiar_fotos_vencidas(dias_retencion=DIAS_RETENCION_FOTOS):
+    hoy = date.today()
+    candidatos = df_all[
+        (df_all['Finalizado'] == True) &
+        ((df_all['Foto1'].astype(str).str.strip() != "") | (df_all['Foto2'].astype(str).str.strip() != ""))
+    ]
+    if candidatos.empty:
+        return False
+
+    actualizaciones = []
+    for _, r in candidatos.iterrows():
+        fecha_res_str = str(r.get('Resolucion', '')).strip()
+        fecha_res = None
+        for formato in ['%Y-%m-%d', '%d/%m/%Y', '%d/%m/%y']:
+            try:
+                fecha_res = datetime.strptime(fecha_res_str, formato).date()
+                break
+            except ValueError:
+                continue
+
+        if not fecha_res or (hoy - fecha_res).days < dias_retencion:
+            continue
+
+        cambios = {}
+        for campo_foto in ['Foto1', 'Foto2']:
+            fid = str(r.get(campo_foto, '')).strip()
+            if fid:
+                eliminar_foto_de_drive(fid)
+                cambios[campo_foto] = ""
+        if cambios:
+            actualizaciones.append({"row": r['row_number'], "data": cambios})
+
+    if actualizaciones:
+        batch_update_records(actualizaciones)
+        clear_cache()
+        return True
+
+    return False
+
+# Se ejecuta como máximo una vez por día por sesión (no hace falta más seguido:
+# como Streamlit Cloud no tiene un scheduler propio, esta limpieza "perezosa"
+# corre cada vez que alguien abre el panel).
+if st.session_state.get("_ultima_limpieza_fotos") != date.today().isoformat():
+    st.session_state["_ultima_limpieza_fotos"] = date.today().isoformat()
+    if limpiar_fotos_vencidas():
+        st.rerun()
 
 # # --- LINKS DE ADMINISTRADOR ---
 if st.session_state.rol == "admin" or st.session_state.usuario == "edu":
@@ -763,7 +817,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 f'</div>'
             )
 
-            with st.expander(f"#{row['autonumero']}  {row['Cliente']}  —  {row['Producto']}", expanded=False):
+            with st.expander(f"#{row['autonumero']}  {row['Cliente']}  —  {row['Producto']}{'  📎' if (str(row.get('Foto1','')).strip() or str(row.get('Foto2','')).strip()) else ''}", expanded=False):
                 st.markdown(header_html, unsafe_allow_html=True)
                 st.markdown("<hr style='margin:8px 0;border-color:#333;'>", unsafe_allow_html=True)
 
@@ -773,6 +827,24 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 ci2.markdown(f"**Falla**<br>{row['Falla'] or '—'}", unsafe_allow_html=True)
                 ci3.markdown(f"**Ingreso**<br>{row['Ingreso'] or '—'}", unsafe_allow_html=True)
                 ci4.markdown(f"**Compra**<br>{row['Compra'] or '—'}", unsafe_allow_html=True)
+
+                # --- Fotos adjuntas por el cliente (si las hay) ---
+                foto1_val = str(row.get('Foto1', '')).strip()
+                foto2_val = str(row.get('Foto2', '')).strip()
+                if foto1_val or foto2_val:
+                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                    fotos_presentes = [v for v in [foto1_val, foto2_val] if v]
+                    cols_fotos = st.columns(4)
+                    for idx_f, file_id in enumerate(fotos_presentes):
+                        foto_bytes = descargar_foto_de_drive(file_id)
+                        if not foto_bytes:
+                            with cols_fotos[idx_f]:
+                                st.caption(f"⚠️ Foto {idx_f + 1} no disponible")
+                            continue
+                        with cols_fotos[idx_f]:
+                            st.image(foto_bytes, width=90, caption=f"Foto {idx_f + 1}")
+                            with st.popover("🔍 Ampliar", key=f"pop_foto_{rn}_{idx_f}"):
+                                st.image(foto_bytes, use_container_width=True)
 
                 st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 

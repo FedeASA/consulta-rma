@@ -2,10 +2,32 @@ import streamlit as st
 from datetime import date
 import urllib.parse
 import smtplib
+import io
+import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from sheets_operations import create_record
+from PIL import Image
+from sheets_operations import create_record, subir_foto_a_drive
 from utils import validar_email
+
+# --- PREPARACIÓN DE FOTOS PARA SUBIR A GOOGLE DRIVE ---
+def preparar_imagen_para_drive(archivo_subido, ancho_max=1600, calidad=85):
+    """Redimensiona (si hace falta) y comprime la imagen antes de subirla a Drive."""
+    try:
+        archivo_subido.seek(0)
+        imagen = Image.open(archivo_subido)
+        imagen = imagen.convert("RGB")  # normaliza PNG con transparencia, modo P, etc.
+    except Exception:
+        return None
+
+    if imagen.width > ancho_max:
+        ratio = ancho_max / imagen.width
+        nuevo_alto = max(1, int(imagen.height * ratio))
+        imagen = imagen.resize((ancho_max, nuevo_alto))
+
+    buffer = io.BytesIO()
+    imagen.save(buffer, format="JPEG", quality=calidad, optimize=True)
+    return buffer.getvalue()
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Formulario RMA - ALTAVISTA SA", layout="centered")
@@ -155,6 +177,27 @@ with st.container(border=True):
         motivo = st.selectbox("Motivo del trámite", options=["RMA", "Devolución"])
         descripcion = st.text_area("Descripción de la falla", placeholder="Especifique el error / falla detalladamente...")
 
+        st.markdown(
+            "<div style='color:#888888; font-size:13px; margin-top:-8px; margin-bottom:4px;'>📎 Adjuntar fotos (opcional, máx. 2 - formato JPG o PNG)</div>",
+            unsafe_allow_html=True
+        )
+        archivos_fotos = st.file_uploader(
+            "Adjuntar fotos",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=True,
+            label_visibility="collapsed"
+        )
+
+        if archivos_fotos and len(archivos_fotos) > 2:
+            st.warning("⚠️ Solo se pueden adjuntar hasta 2 fotos. Se usarán las primeras 2 seleccionadas.")
+            archivos_fotos = archivos_fotos[:2]
+
+        if archivos_fotos:
+            cols_preview = st.columns(len(archivos_fotos))
+            for col_p, archivo_p in zip(cols_preview, archivos_fotos):
+                with col_p:
+                    st.image(archivo_p, width=120)
+
         st.markdown("---")
         st.markdown("### Método de Contacto")
         opcion_contacto = st.radio("¿Cómo prefiere que nos contactemos?", options=["WhatsApp", "Correo Electrónico"], horizontal=True)
@@ -186,7 +229,26 @@ with st.container(border=True):
                         "serial": serial,
                         "falla": descripcion
                     }
-                    
+
+                    # --- Subir las fotos adjuntas a Drive (si las hay) ---
+                    foto1_id = ""
+                    foto2_id = ""
+                    if archivos_fotos:
+                        for idx, archivo_f in enumerate(archivos_fotos[:2]):
+                            bytes_img = preparar_imagen_para_drive(archivo_f)
+                            if bytes_img is None:
+                                st.warning(f"⚠️ La foto {idx + 1} no pudo procesarse y no fue adjuntada.")
+                                continue
+                            nombre_archivo = f"{(serial or 'SN').strip()}_{idx + 1}_{int(time.time())}.jpg"
+                            file_id = subir_foto_a_drive(bytes_img, nombre_archivo)
+                            if file_id:
+                                if idx == 0:
+                                    foto1_id = file_id
+                                else:
+                                    foto2_id = file_id
+                            else:
+                                st.warning(f"⚠️ No se pudo subir la foto {idx + 1} a Drive.")
+
                     nuevo_registro = {
                         "Cliente": cliente,
                         "Producto": producto,
@@ -198,7 +260,9 @@ with st.container(border=True):
                         "Telefono": telefono_val,      
                         "Email": email_val.strip().lower() if opcion_contacto == "Correo Electrónico" else "",            
                         "Estado del RMA": "PENDIENTE",
-                        "Ingreso": str(date.today())
+                        "Ingreso": str(date.today()),
+                        "Foto1": foto1_id,
+                        "Foto2": foto2_id
                     }
                     
                     # 1. Guardar en Google Sheets
