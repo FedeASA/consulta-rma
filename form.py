@@ -41,6 +41,13 @@ st.markdown("""
     .stInputInstructions {
         display: none !important;
     }
+    div[data-testid="stFileUploaderDropzoneInstructions"] small {
+        font-size: 0 !important;
+    }
+    div[data-testid="stFileUploaderDropzoneInstructions"] small::after {
+        font-size: 14px !important;
+        content: "JPG / PNG solamente";
+    }
     .block-container { padding-top: 2rem; }
     [data-testid="stVerticalBlockBorderControl"] {
         border: 1px solid rgba(49, 51, 63, 0.2);
