@@ -7,6 +7,8 @@ from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
+from google_auth_httplib2 import AuthorizedHttp
+import httplib2
 import pandas as pd
 import streamlit as st
 from datetime import datetime
@@ -14,6 +16,12 @@ import json
 import os
 import time
 import io
+
+# Timeout (segundos) para llamadas a la API de Google Drive.
+# Sin esto, una llamada como files().delete() puede quedarse esperando
+# una respuesta de red indefinidamente (cuelgue de socket, no error 429),
+# lo que traba toda la app sin generar ninguna excepción ni log.
+DRIVE_HTTP_TIMEOUT = 20
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
@@ -64,7 +72,11 @@ def get_sheets_client():
 def get_drive_service():
     credentials = get_google_credentials()
     try:
-        return build("drive", "v3", credentials=credentials, cache_discovery=False)
+        # ✅ http con timeout: si Drive no responde en DRIVE_HTTP_TIMEOUT segundos,
+        # tira una excepción en vez de colgar la app indefinidamente.
+        http_con_timeout = httplib2.Http(timeout=DRIVE_HTTP_TIMEOUT)
+        authed_http = AuthorizedHttp(credentials, http=http_con_timeout)
+        return build("drive", "v3", http=authed_http, cache_discovery=False)
     except Exception as e:
         st.error(f"❌ Error al conectar con Google Drive: {e}")
         st.stop()
