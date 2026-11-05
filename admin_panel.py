@@ -866,17 +866,18 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 f'</div>'
             )
 
-            # Checkbox "Recibido" al costado de la tarjeta (se guarda al tildar, sin abrirla)
-            c_chk, c_exp = st.columns([1, 11], gap="small", vertical_alignment="center")
             key_rec = f"rec_{rn}"
             st.session_state[key_rec] = bool(row['Recibido'])  # la planilla manda
-            c_chk.checkbox(
-                "Recibido", key=key_rec, label_visibility="collapsed",
-                help="Recibido", on_change=_toggle_recibido, args=(rn, key_rec)
-            )
 
-            with c_exp, st.expander(f"#{row['autonumero']}  {row['Cliente']}  —  {row['Producto']}{'  📎' if (str(row.get('Foto1','')).strip() or str(row.get('Foto2','')).strip()) else ''}", expanded=False):
-                st.markdown(header_html, unsafe_allow_html=True)
+            with st.expander(f"#{row['autonumero']}  {row['Cliente']}  —  {row['Producto']}{'  📎' if (str(row.get('Foto1','')).strip() or str(row.get('Foto2','')).strip()) else ''}", expanded=False):
+                # Encabezado + checkbox "Recibido" arriba a la derecha (se guarda al tildar)
+                c_head, c_chk = st.columns([4, 1], gap="small", vertical_alignment="center")
+                c_head.markdown(header_html, unsafe_allow_html=True)
+                c_chk.checkbox(
+                    "📦 Recibido", key=key_rec,
+                    help="Tildá cuando el producto llegó. El ticket pasa a la columna de recibidos.",
+                    on_change=_toggle_recibido, args=(rn, key_rec)
+                )
                 st.markdown("<hr style='margin:8px 0;border-color:#333;'>", unsafe_allow_html=True)
 
                 # Info de solo lectura
