@@ -6,27 +6,37 @@ import io
 import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from PIL import Image
+from PIL import Image, ImageOps
 from sheets_operations import create_record, subir_foto_a_cloudinary
 from utils import validar_email
 
 # --- PREPARACIÓN DE FOTOS PARA SUBIR A GOOGLE DRIVE ---
-def preparar_imagen_para_drive(archivo_subido, ancho_max=1600, calidad=85):
-    """Redimensiona (si hace falta) y comprime la imagen antes de subirla a Drive."""
+def preparar_imagen_para_subir(archivo_subido, lado_max=2560, calidad=92, peso_max=9_500_000):
+    """Prepara la foto para Cloudinary respetando la resolución original del cliente.
+    - Corrige la rotación de las fotos de celular (EXIF).
+    - Solo achica si el lado mayor supera `lado_max` (2560px, nunca baja de 1024px).
+    - Si el archivo pasa el límite de Cloudinary (~10 MB), baja la calidad antes que la resolución."""
     try:
         archivo_subido.seek(0)
         imagen = Image.open(archivo_subido)
+        imagen = ImageOps.exif_transpose(imagen)
         imagen = imagen.convert("RGB")  # normaliza PNG con transparencia, modo P, etc.
     except Exception:
         return None
 
-    if imagen.width > ancho_max:
-        ratio = ancho_max / imagen.width
-        nuevo_alto = max(1, int(imagen.height * ratio))
-        imagen = imagen.resize((ancho_max, nuevo_alto))
+    lado_max = max(lado_max, 1024)
+    if max(imagen.size) > lado_max:
+        ratio = lado_max / max(imagen.size)
+        imagen = imagen.resize(
+            (max(1, round(imagen.width * ratio)), max(1, round(imagen.height * ratio))),
+            Image.LANCZOS
+        )
 
-    buffer = io.BytesIO()
-    imagen.save(buffer, format="JPEG", quality=calidad, optimize=True)
+    for q in (calidad, 85, 78):
+        buffer = io.BytesIO()
+        imagen.save(buffer, format="JPEG", quality=q, optimize=True)
+        if buffer.tell() <= peso_max:
+            break
     return buffer.getvalue()
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -247,7 +257,7 @@ with st.container(border=True):
                     urls_fotos = []
                     if archivos_fotos:
                         for idx, archivo_f in enumerate(archivos_fotos[:2]):
-                            bytes_img = preparar_imagen_para_drive(archivo_f)
+                            bytes_img = preparar_imagen_para_subir(archivo_f)
                             if bytes_img is None:
                                 errores_fotos.append(f"Foto {idx + 1} ({archivo_f.name}): no se pudo leer/convertir la imagen.")
                                 continue

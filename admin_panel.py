@@ -849,6 +849,13 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
             label = e if e else "SIN ESTADO"
             return f'<span class="rma-badge {cls}">{label}</span>'
 
+        @st.dialog("📷 Foto adjunta", width="large")
+        def _ver_foto_grande(origen):
+            # Ventana grande con la foto en su resolución original
+            st.image(origen, use_container_width=True)
+            if isinstance(origen, str) and es_url_foto(origen):
+                st.link_button("Abrir original en otra pestaña ↗", origen)
+
         def _toggle_recibido(rn, key):
             """Guarda el tilde de 'Recibido' apenas se hace clic."""
             nuevo_valor = bool(st.session_state.get(key, False))
@@ -915,20 +922,19 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                             with cols_fotos[idx_f]:
                                 if es_url_foto(valor_foto):
                                     # Cloudinary: el navegador carga la miniatura directo, sin pasar por el servidor
-                                    st.image(miniatura_cloudinary(valor_foto, 240, 240), width=120,
+                                    st.image(miniatura_cloudinary(valor_foto, 320, 320), width=160,
                                              caption=f"Foto {idx_f + 1}")
-                                    with st.popover("🔍 Ampliar", key=f"pop_foto_{rn}_{idx_f}"):
-                                        st.image(valor_foto, use_container_width=True)
-                                        st.link_button("Abrir original ↗", valor_foto)
+                                    if st.button("🔍 Ampliar", key=f"ver_foto_{rn}_{idx_f}"):
+                                        _ver_foto_grande(valor_foto)
                                 else:
                                     # Ticket viejo con la foto en Drive
                                     foto_bytes = descargar_foto_de_drive(valor_foto)
                                     if not foto_bytes:
                                         st.caption(f"⚠️ Foto {idx_f + 1} no disponible")
                                         continue
-                                    st.image(foto_bytes, width=120, caption=f"Foto {idx_f + 1}")
-                                    with st.popover("🔍 Ampliar", key=f"pop_foto_{rn}_{idx_f}"):
-                                        st.image(foto_bytes, use_container_width=True)
+                                    st.image(foto_bytes, width=160, caption=f"Foto {idx_f + 1}")
+                                    if st.button("🔍 Ampliar", key=f"ver_foto_{rn}_{idx_f}"):
+                                        _ver_foto_grande(foto_bytes)
 
                 st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
