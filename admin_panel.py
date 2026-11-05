@@ -252,8 +252,9 @@ def estilo_filas(row):
     if estado in ["CAMBIO", "CREDITO"]: style = verde
     elif estado in ["GARANTIA", "GARANTIA OFICIAL"]: style = naranja
     elif estado == "NO FALLO - DEVOLVER A CLIENTE": style = celeste
-    elif estado == "FUERA DE GARANTIA": style = rojo
+    elif estado in ["FUERA DE GARANTIA", "RECHAZADO"]: style = rojo
     elif estado == "REPARADO": style = gris
+    elif estado == "NUNCA ENVIO": style = 'background-color: #6f42c1; color: white;'
     return [style if col != 'Finalizado' else '' for col in row.index]
 
 def formatear_para_leer(fecha_raw):
@@ -674,8 +675,10 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                         rma_id = str(orig.get('autonumero', '')).strip()
                         if rma_id in ["", "nan", "None"]:
                             rma_id = str(_proximo_rma)
-                            up['autonumero'] = rma_id
                             _proximo_rma += 1
+                        # Se escribe siempre como valor fijo: si la celda tenía una fórmula
+                        # (ej. =FILA()-1), al borrar filas el número se corría.
+                        up['autonumero'] = rma_id
 
                         cliente_id = cliente_nom
                         estado_rma = "PENDIENTE"
@@ -767,8 +770,10 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                 elif not confirmar_borrado:
                     st.error("Debes tildar la casilla de confirmación central para habilitar la eliminación.")
                 else:
-                    for row_borrar in registros_a_borrar:
-                        delete_row(row_borrar)
+                    # De la fila más baja a la más alta: si se borra primero una de arriba,
+                    # las de abajo suben un lugar y se terminaba borrando la fila equivocada.
+                    for row_borrar in sorted(registros_a_borrar, reverse=True):
+                        delete_row(int(row_borrar))
                     st.success(f"¡Se eliminaron {len(registros_a_borrar)} registros correctamente!")
                     clear_cache()
                     st.rerun()
@@ -822,6 +827,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
         .badge-celeste  { background:#17a2b8; color:#fff; }
         .badge-rojo     { background:#dc3545; color:#fff; }
         .badge-gris     { background:#6c757d; color:#fff; }
+        .badge-violeta  { background:#6f42c1; color:#fff; }
         .badge-pendiente{ background:#444; color:#ccc; }
         .rma-sep { color:#555; }
 
@@ -845,6 +851,8 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 "NO FALLO - DEVOLVER A CLIENTE": "badge-celeste",
                 "FUERA DE GARANTIA": "badge-rojo",
                 "REPARADO": "badge-gris",
+                "RECHAZADO": "badge-rojo",
+                "NUNCA ENVIO": "badge-violeta",
             }.get(e, "badge-pendiente")
             label = e if e else "SIN ESTADO"
             return f'<span class="rma-badge {cls}">{label}</span>'
@@ -895,7 +903,6 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 c_head.markdown(header_html, unsafe_allow_html=True)
                 c_chk.checkbox(
                     "📦 Recibido", key=key_rec,
-                    help="Tildá cuando el producto llegó. El ticket pasa a la columna de recibidos.",
                     on_change=_toggle_recibido, args=(rn, key_rec)
                 )
                 st.markdown("<hr style='margin:8px 0;border-color:#333;'>", unsafe_allow_html=True)
@@ -949,13 +956,16 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                         nuevo_estado = fe2.selectbox(
                             "📋 Estado del RMA",
                             options=["", "CAMBIO", "CREDITO", "GARANTIA OFICIAL", "GARANTIA",
-                                     "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO"],
+                                     "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO",
+                                     "RECHAZADO", "NUNCA ENVIO"],
                             index=(["", "CAMBIO", "CREDITO", "GARANTIA OFICIAL", "GARANTIA",
-                                    "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO"
+                                    "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO",
+                                     "RECHAZADO", "NUNCA ENVIO"
                                     ].index(str(row.get('Estado del RMA', '')))
                                    if str(row.get('Estado del RMA', '')) in
                                    ["", "CAMBIO", "CREDITO", "GARANTIA OFICIAL", "GARANTIA",
-                                    "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO"]
+                                    "FUERA DE GARANTIA", "NO FALLO - DEVOLVER A CLIENTE", "REPARADO",
+                                     "RECHAZADO", "NUNCA ENVIO"]
                                    else 0),
                             key=f"estado_{rn}"
                         )
@@ -1131,8 +1141,9 @@ with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
             <span style="background:#28a745; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🟢 Cambio / Crédito</span>
             <span style="background:#fd7e14; color:black; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🟠 Garantía / Garantía Oficial</span>
             <span style="background:#17a2b8; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🔵 No falló – Devolver a cliente</span>
-            <span style="background:#dc3545; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🔴 Fuera de garantía</span>
+            <span style="background:#dc3545; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🔴 Fuera de garantía / Rechazado</span>
             <span style="background:#6c757d; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">⚪ Reparado</span>
+            <span style="background:#6f42c1; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🟣 Nunca envió</span>
         </div>
         """, unsafe_allow_html=True)
 

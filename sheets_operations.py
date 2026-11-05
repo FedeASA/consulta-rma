@@ -477,10 +477,31 @@ def delete_row(row_number, sheet_name="Proveedores", worksheet_name="RMA ALTAVIS
         return False
 
 
+def _siguiente_autonumero(worksheet, headers):
+    """Próximo Nº de RMA = mayor número existente + 1 (leído en el momento, sin caché)."""
+    idx = next((i for i, h in enumerate(headers) if _normalizar_nombre_col(h) == "AUTONUMERO"), None)
+    if idx is None:
+        return None
+    valores = _safe_api_call(lambda: worksheet.col_values(idx + 1))[1:]
+    numeros = []
+    for v in valores:
+        try:
+            numeros.append(int(float(str(v).strip())))
+        except (TypeError, ValueError):
+            continue
+    return (max(numeros) + 1) if numeros else 1
+
+
 def create_record(data, sheet_name="Proveedores", worksheet_name="RMA ALTAVISTA"):
     worksheet = get_sheet(sheet_name, worksheet_name)
     try:
         headers = _get_cached_headers(sheet_name, worksheet_name)
+        # El Nº de RMA se guarda como valor fijo al crear el ticket (antes lo calculaba
+        # la planilla y se corría al borrar filas).
+        if not str(data.get("autonumero", "") or "").strip():
+            proximo = _siguiente_autonumero(worksheet, headers)
+            if proximo is not None:
+                data = {**data, "autonumero": proximo}
         data_n = {_normalizar_nombre_col(k): v for k, v in data.items()}
         new_row = [_valor_celda(data_n.get(_normalizar_nombre_col(h), "")) for h in headers]
         worksheet.append_row(new_row)
