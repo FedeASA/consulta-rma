@@ -7,7 +7,7 @@ import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from PIL import Image
-from sheets_operations import create_record, subir_foto_a_drive
+from sheets_operations import create_record, subir_foto_a_cloudinary
 from utils import validar_email
 
 # --- PREPARACIÓN DE FOTOS PARA SUBIR A GOOGLE DRIVE ---
@@ -238,23 +238,37 @@ with st.container(border=True):
                     }
 
                     # --- Subir las fotos adjuntas a Drive (si las hay) ---
+                    # Las fotos se suben a Cloudinary y en la planilla (Foto1/Foto2) queda la URL.
+                    # Los enlaces (o el error, si falló) van en el mail interno: los st.warning
+                    # se perdían porque al terminar se hace st.rerun() a la pantalla de éxito.
                     foto1_id = ""
                     foto2_id = ""
+                    errores_fotos = []
+                    urls_fotos = []
                     if archivos_fotos:
                         for idx, archivo_f in enumerate(archivos_fotos[:2]):
                             bytes_img = preparar_imagen_para_drive(archivo_f)
                             if bytes_img is None:
-                                st.warning(f"⚠️ La foto {idx + 1} no pudo procesarse y no fue adjuntada.")
+                                errores_fotos.append(f"Foto {idx + 1} ({archivo_f.name}): no se pudo leer/convertir la imagen.")
                                 continue
-                            nombre_archivo = f"{(serial or 'SN').strip()}_{idx + 1}_{int(time.time())}.jpg"
-                            file_id = subir_foto_a_drive(bytes_img, nombre_archivo)
-                            if file_id:
-                                if idx == 0:
-                                    foto1_id = file_id
+                            nombre_base = f"{(serial or 'SN').strip()}_{idx + 1}"
+                            url_foto, error_foto = subir_foto_a_cloudinary(bytes_img, nombre_base)
+                            if url_foto:
+                                urls_fotos.append(url_foto)
+                                if not foto1_id:
+                                    foto1_id = url_foto
                                 else:
-                                    foto2_id = file_id
+                                    foto2_id = url_foto
                             else:
-                                st.warning(f"⚠️ No se pudo subir la foto {idx + 1} a Drive.")
+                                errores_fotos.append(f"Foto {idx + 1} ({archivo_f.name}): {error_foto}")
+
+                    texto_fotos = ""
+                    if archivos_fotos:
+                        texto_fotos = f"\n\nFotos adjuntas por el cliente: {len(archivos_fotos[:2])} - subidas: {len(urls_fotos)}\n"
+                        for i_u, u in enumerate(urls_fotos, start=1):
+                            texto_fotos += f"Foto {i_u}: {u}\n"
+                        if errores_fotos:
+                            texto_fotos += "⚠️ ERRORES AL SUBIR FOTOS:\n" + "\n".join(f"- {e}" for e in errores_fotos) + "\n"
 
                     nuevo_registro = {
                         "Cliente": cliente,
@@ -327,7 +341,7 @@ with st.container(border=True):
                             config_section="EMAIL_INTERNO",
                             destinatario="federico@altavistasa.com.ar",
                             asunto=asunto_ws,
-                            cuerpo_texto=cuerpo_ws
+                            cuerpo_texto=cuerpo_ws + texto_fotos
                         )
                         
                     else:
@@ -344,7 +358,7 @@ with st.container(border=True):
                             config_section="EMAIL_INTERNO",
                             destinatario="federico@altavistasa.com.ar",
                             asunto=asunto_interno,
-                            cuerpo_texto=cuerpo_interno
+                            cuerpo_texto=cuerpo_interno + texto_fotos
                         )
                         
                         # MENSAJE PARA EL CLIENTE (Solo si seleccionó Correo)

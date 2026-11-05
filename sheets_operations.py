@@ -4,6 +4,10 @@ sheets_operations.py - Módulo para operaciones con Google Sheets
 
 import gspread
 from gspread.exceptions import APIError
+from googleapiclient.errors import HttpError
+import unicodedata
+import uuid
+import re
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
@@ -83,31 +87,53 @@ def get_drive_service():
 
 
 def _get_drive_folder_id():
+    """Devuelve el ID de la carpeta de fotos, o None si no está configurado.
+    (Ya no hace st.stop(): eso cortaba el guardado del ticket entero.)"""
     try:
-        return st.secrets["DRIVE_FOTOS_RMA_FOLDER_ID"]
+        valor = str(st.secrets["DRIVE_FOTOS_RMA_FOLDER_ID"]).strip()
+        return valor or None
     except Exception:
-        st.error(
-            "❌ Falta configurar 'DRIVE_FOTOS_RMA_FOLDER_ID' en Secrets con el ID "
-            "de la carpeta de Drive donde se guardan las fotos de los RMA."
-        )
-        st.stop()
+        return None
+
+
+def _explicar_error_drive(e):
+    """Traduce los errores de Drive más comunes a un mensaje entendible."""
+    txt = str(e)
+    if "storageQuotaExceeded" in txt or "do not have storage quota" in txt:
+        return ("La cuenta de servicio no tiene cuota de almacenamiento propia. "
+                "La carpeta de fotos tiene que estar dentro de una Unidad compartida "
+                "(Shared Drive) con la cuenta de servicio como miembro (Gestor de contenido). "
+                f"Detalle: {txt}")
+    if "File not found" in txt or "notFound" in txt:
+        return ("No se encontró la carpeta DRIVE_FOTOS_RMA_FOLDER_ID o la cuenta de servicio "
+                f"no tiene acceso a ella. Detalle: {txt}")
+    if "insufficientFilePermissions" in txt or "403" in txt:
+        return ("La cuenta de servicio no tiene permiso de escritura sobre la carpeta de fotos. "
+                f"Detalle: {txt}")
+    return txt
 
 
 def subir_foto_a_drive(bytes_imagen, nombre_archivo):
     """Sube una foto (bytes JPEG) a la carpeta de Drive configurada.
-    Devuelve el ID del archivo en Drive, o None si falló."""
+    Devuelve (file_id, None) si salió bien, o (None, mensaje_error) si falló."""
+    folder_id = _get_drive_folder_id()
+    if not folder_id:
+        return None, ("Falta configurar 'DRIVE_FOTOS_RMA_FOLDER_ID' en Secrets (a nivel raíz, "
+                      "no dentro de [GOOGLE_CREDS]).")
     try:
         servicio = get_drive_service()
-        folder_id = _get_drive_folder_id()
         metadata = {"name": nombre_archivo, "parents": [folder_id]}
         media = MediaIoBaseUpload(io.BytesIO(bytes_imagen), mimetype="image/jpeg", resumable=False)
         archivo = _safe_api_call(lambda: servicio.files().create(
-            body=metadata, media_body=media, fields="id"
+            body=metadata, media_body=media, fields="id",
+            supportsAllDrives=True
         ).execute())
-        return archivo.get("id")
+        file_id = archivo.get("id")
+        if not file_id:
+            return None, "Drive no devolvió un ID de archivo."
+        return file_id, None
     except Exception as e:
-        st.error(f"❌ Error al subir la foto a Drive: {e}")
-        return None
+        return None, _explicar_error_drive(e)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -117,7 +143,7 @@ def descargar_foto_de_drive(file_id):
         return None
     try:
         servicio = get_drive_service()
-        solicitud = servicio.files().get_media(fileId=file_id)
+        solicitud = servicio.files().get_media(fileId=file_id, supportsAllDrives=True)
         buffer = io.BytesIO()
         downloader = MediaIoBaseDownload(buffer, solicitud)
         listo = False
@@ -134,8 +160,113 @@ def eliminar_foto_de_drive(file_id):
         return True
     try:
         servicio = get_drive_service()
-        _safe_api_call(lambda: servicio.files().delete(fileId=file_id).execute())
+        _safe_api_call(lambda: servicio.files().delete(fileId=file_id, supportsAllDrives=True).execute())
         return True
+    except Exception:
+        return False
+
+
+# --- CLOUDINARY: fotos adjuntas de los RMA (reemplaza a Drive para las fotos nuevas) ---
+# Secrets necesarios (sección propia, a nivel raíz):
+#   [CLOUDINARY]
+#   cloud_name = "..."
+#   api_key    = "..."
+#   api_secret = "..."
+#   folder     = "rma"        # opcional
+# En la planilla, Foto1/Foto2 guardan la URL de Cloudinary (https://res.cloudinary.com/...).
+# Los tickets viejos que tienen un ID de Drive se siguen viendo con las funciones de Drive.
+
+def _config_cloudinary():
+    """Configura el SDK. Devuelve (modulo_cloudinary, carpeta, None) o (None, None, error)."""
+    try:
+        import cloudinary
+        import cloudinary.uploader  # noqa: F401
+    except ImportError:
+        return None, None, "Falta el paquete 'cloudinary' en requirements.txt."
+    try:
+        cfg = st.secrets["CLOUDINARY"]
+        cloudinary.config(
+            cloud_name=str(cfg["cloud_name"]).strip(),
+            api_key=str(cfg["api_key"]).strip(),
+            api_secret=str(cfg["api_secret"]).strip(),
+            secure=True,
+        )
+        carpeta = str(cfg.get("folder", "rma")).strip() or "rma"
+        return cloudinary, carpeta, None
+    except Exception:
+        return None, None, ("Falta la sección [CLOUDINARY] (cloud_name, api_key, api_secret) "
+                            "en los Secrets de la app.")
+
+
+def es_url_foto(valor):
+    return str(valor or "").strip().lower().startswith("http")
+
+
+def subir_foto_a_cloudinary(bytes_imagen, nombre_base="foto"):
+    """Sube una foto (bytes) a Cloudinary.
+    Devuelve (url_segura, None) si salió bien, o (None, mensaje_error) si falló."""
+    cloudinary, carpeta, error = _config_cloudinary()
+    if error:
+        return None, error
+    # public_id con parte aleatoria: la URL no se puede adivinar a partir del serial
+    limpio = re.sub(r"[^A-Za-z0-9_-]+", "_", str(nombre_base))[:40] or "foto"
+    public_id = f"{limpio}_{uuid.uuid4().hex[:10]}"
+    for intento in range(3):
+        try:
+            res = cloudinary.uploader.upload(
+                io.BytesIO(bytes_imagen),
+                folder=carpeta,
+                public_id=public_id,
+                resource_type="image",
+                overwrite=False,
+            )
+            url = res.get("secure_url")
+            if not url:
+                return None, "Cloudinary no devolvió la URL de la imagen."
+            return url, None
+        except Exception as e:
+            txt = str(e)
+            transitorio = any(c in txt for c in ("429", "500", "502", "503", "timed out", "Timeout"))
+            if transitorio and intento < 2:
+                time.sleep(2 * (intento + 1))
+                continue
+            if "401" in txt or "Invalid Signature" in txt or "api_key" in txt.lower():
+                return None, f"Credenciales de Cloudinary inválidas. Detalle: {txt}"
+            return None, f"Error de Cloudinary: {txt}"
+
+
+def miniatura_cloudinary(url, ancho=300, alto=300):
+    """Devuelve la URL de una miniatura recortada (la genera Cloudinary al vuelo)."""
+    url = str(url or "").strip()
+    if "/image/upload/" not in url:
+        return url
+    return url.replace("/image/upload/", f"/image/upload/c_fill,w_{ancho},h_{alto},q_auto,f_auto/", 1)
+
+
+def _public_id_desde_url(url):
+    """https://res.cloudinary.com/<cloud>/image/upload/v123/rma/abc.jpg -> rma/abc"""
+    m = re.search(r"/image/upload/(?:[^/]+/)*?v\d+/(.+?)(?:\.[A-Za-z0-9]+)?$", str(url))
+    if not m:
+        m = re.search(r"/image/upload/(.+?)(?:\.[A-Za-z0-9]+)?$", str(url))
+    return m.group(1) if m else None
+
+
+def eliminar_foto(valor):
+    """Borra una foto: si es URL de Cloudinary la borra allí, si es un ID viejo de Drive, de Drive."""
+    valor = str(valor or "").strip()
+    if not valor:
+        return True
+    if not es_url_foto(valor):
+        return eliminar_foto_de_drive(valor)
+    cloudinary, _, error = _config_cloudinary()
+    if error:
+        return False
+    public_id = _public_id_desde_url(valor)
+    if not public_id:
+        return False
+    try:
+        res = cloudinary.uploader.destroy(public_id, resource_type="image", invalidate=True)
+        return res.get("result") in ("ok", "not found")
     except Exception:
         return False
 
@@ -190,15 +321,56 @@ def get_dataframe(sheet_name="Proveedores", worksheet_name="RMA ALTAVISTA"):
 
 
 def _safe_api_call(fn, retries=3, delay=5):
-    """Reintenta una llamada a la API si hay error 429."""
+    """Reintenta una llamada a la API (Sheets o Drive) ante errores transitorios 429/500/503."""
     for attempt in range(retries):
         try:
             return fn()
-        except APIError as e:
-            if "429" in str(e) and attempt < retries - 1:
+        except (APIError, HttpError) as e:
+            status = None
+            if isinstance(e, HttpError):
+                status = getattr(getattr(e, "resp", None), "status", None)
+            else:
+                status = getattr(getattr(e, "response", None), "status_code", None)
+            transitorio = str(status) in ("429", "500", "503") or "429" in str(e)
+            if transitorio and attempt < retries - 1:
                 time.sleep(delay * (attempt + 1))
             else:
                 raise
+
+
+def _normalizar_nombre_col(nombre):
+    """'Proveedor ', 'PROVEEDOR', 'proveedor' -> 'PROVEEDOR'. Quita acentos y espacios extra."""
+    s = unicodedata.normalize("NFKD", str(nombre)).encode("ascii", "ignore").decode()
+    return " ".join(s.split()).upper()
+
+
+def _datos_normalizados(data, headers):
+    """Mapea las claves de `data` a los encabezados reales de la planilla sin importar
+    mayúsculas/espacios/acentos. Avisa si alguna clave no existe como columna
+    (antes esos valores se descartaban en silencio)."""
+    data_n = {_normalizar_nombre_col(k): v for k, v in data.items()}
+    headers_n = {_normalizar_nombre_col(h) for h in headers}
+    faltantes = [k for k in data.keys() if _normalizar_nombre_col(k) not in headers_n]
+    if faltantes:
+        st.warning(
+            "⚠️ Estas columnas no existen en la planilla y no se guardaron: "
+            + ", ".join(faltantes)
+            + ". Agregá el encabezado en la fila 1 de la hoja."
+        )
+    return data_n
+
+
+def _valor_celda(val):
+    if isinstance(val, bool):
+        return "TRUE" if val else "FALSE"
+    if val is None:
+        return ""
+    try:
+        if pd.isna(val):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(val)
 
 
 def update_record(row_number, data, sheet_name="Proveedores", worksheet_name="RMA ALTAVISTA"):
@@ -219,14 +391,12 @@ def update_record(row_number, data, sheet_name="Proveedores", worksheet_name="RM
         current_row = _safe_api_call(lambda: worksheet.row_values(row_number))
 
         # Construir la fila nueva con los valores actualizados
+        data_n = _datos_normalizados(data, headers)
         new_row = []
         for i, header in enumerate(headers):
-            if header in data:
-                val = data[header]
-                if isinstance(val, bool):
-                    new_row.append("TRUE" if val else "FALSE")
-                else:
-                    new_row.append(str(val) if val is not None else "")
+            hn = _normalizar_nombre_col(header)
+            if hn in data_n:
+                new_row.append(_valor_celda(data_n[hn]))
             else:
                 new_row.append(str(current_row[i]) if i < len(current_row) else "")
 
@@ -269,14 +439,12 @@ def batch_update_records(records_to_update, sheet_name="Proveedores", worksheet_
 
             current_row = all_rows[row_number - 1]  # 0-indexed
 
+            data_n = _datos_normalizados(data, headers)
             new_row = []
             for i, header in enumerate(headers):
-                if header in data:
-                    val = data[header]
-                    if isinstance(val, bool):
-                        new_row.append("TRUE" if val else "FALSE")
-                    else:
-                        new_row.append(str(val) if val is not None else "")
+                hn = _normalizar_nombre_col(header)
+                if hn in data_n:
+                    new_row.append(_valor_celda(data_n[hn]))
                 else:
                     new_row.append(str(current_row[i]) if i < len(current_row) else "")
 
@@ -313,7 +481,8 @@ def create_record(data, sheet_name="Proveedores", worksheet_name="RMA ALTAVISTA"
     worksheet = get_sheet(sheet_name, worksheet_name)
     try:
         headers = _get_cached_headers(sheet_name, worksheet_name)
-        new_row = [str(data.get(header, "")) for header in headers]
+        data_n = {_normalizar_nombre_col(k): v for k, v in data.items()}
+        new_row = [_valor_celda(data_n.get(_normalizar_nombre_col(h), "")) for h in headers]
         worksheet.append_row(new_row)
         return True
     except Exception as e:

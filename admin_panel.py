@@ -15,7 +15,9 @@ from sheets_operations import (
     find_row_by_values,
     clear_cache,
     descargar_foto_de_drive,
-    eliminar_foto_de_drive
+    eliminar_foto,
+    es_url_foto,
+    miniatura_cloudinary
 )
 from utils import es_verdadero, booleano_a_sheets
 from sso import generar_token
@@ -294,18 +296,45 @@ df_all = cargar_todos_los_datos()
 
 # --- VERIFICACIÓN Y COMPATIBILIDAD DE COLUMNAS (AL INICIO PARA EVITAR DESFASES) ---
 if not df_all.empty:
-    columnas_requeridas = ['Aceptado', 'Finalizado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']
+    columnas_requeridas = ['Aceptado', 'Finalizado', 'Recibido', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']
+    COLS_BOOL = ['Aceptado', 'Finalizado', 'Recibido']
+
+    # Si en la planilla el encabezado está escrito distinto ("Proveedor", "PROVEEDOR ",
+    # "recibido"...), se renombra al nombre que usa el código. Antes se creaba una columna
+    # vacía aparte y los cambios de ese campo nunca se veían.
+    import unicodedata as _ud
+    def _norm_col(n):
+        n = _ud.normalize("NFKD", str(n)).encode("ascii", "ignore").decode()
+        return " ".join(n.split()).upper()
+    _mapa_cols = {_norm_col(c): c for c in df_all.columns}
+    _renombres = {}
+    for col in columnas_requeridas + ['Cliente']:
+        real = _mapa_cols.get(_norm_col(col))
+        if col not in df_all.columns and real is not None:
+            _renombres[real] = col
+    if _renombres:
+        df_all = df_all.rename(columns=_renombres)
+
+    # Columnas que el panel necesita y NO existen en la planilla: se avisa al admin
+    COLS_FALTANTES_SHEET = [c for c in ['PROVEEDOR', 'Recibido', 'Foto1', 'Foto2'] if c not in df_all.columns]
+
     for col in columnas_requeridas:
         if col not in df_all.columns: 
-            df_all[col] = False if col in ['Aceptado', 'Finalizado'] else ""
+            df_all[col] = False if col in COLS_BOOL else ""
         else:
-            if col in ['Aceptado', 'Finalizado']:
+            if col in COLS_BOOL:
                 df_all[col] = df_all[col].apply(lambda x: es_verdadero(x))
 
     for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']:
         if col_txt in df_all.columns:
             df_all[col_txt] = df_all[col_txt].fillna("").apply(lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else str(x))
             df_all[col_txt] = df_all[col_txt].apply(lambda x: "" if str(x).strip() in ["None", "none", "nan", "NaN", ""] else str(x).strip())
+    if COLS_FALTANTES_SHEET and st.session_state.get("rol") == "admin":
+        st.warning(
+            "⚠️ Faltan estas columnas en la fila 1 de la planilla: **"
+            + ", ".join(COLS_FALTANTES_SHEET)
+            + "**. Hasta que las agregues, lo que se cargue en esos campos no se va a guardar."
+        )
 else:
     st.error("⚠️ No se pudieron cargar datos desde Google Sheets. Verificá las credenciales.")
     if st.button("🔄 Reintentar"):
@@ -345,7 +374,7 @@ def limpiar_fotos_vencidas(dias_retencion=DIAS_RETENCION_FOTOS):
         for campo_foto in ['Foto1', 'Foto2']:
             fid = str(r.get(campo_foto, '')).strip()
             if fid:
-                eliminar_foto_de_drive(fid)
+                eliminar_foto(fid)  # Cloudinary (URL) o Drive (ID viejo)
                 cambios[campo_foto] = ""
         if cambios:
             actualizaciones.append({"row": r['row_number'], "data": cambios})
@@ -551,27 +580,37 @@ df1 = df_all[
 ].copy()
 
 with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
+    if st.session_state.get('t1_msg_error'):
+        st.error(st.session_state.pop('t1_msg_error'))
     if not df1.empty:
         if 'Compra' in df1.columns:
             df1 = df1.sort_values(by='Compra', ascending=False)
             
         df1['Compra'] = df1['Compra'].apply(formatear_para_leer)
         df1.insert(0, 'Eliminar', False)
+        # Miniatura de la primera foto (solo fotos de Cloudinary; las viejas de Drive no tienen URL pública)
+        df1['Foto'] = df1.apply(
+            lambda r: next((miniatura_cloudinary(v, 120, 120) for v in [r.get('Foto1', ''), r.get('Foto2', '')] if es_url_foto(v)), None),
+            axis=1
+        )
         
         with st.form("f1"):
             if st.session_state.rol == "admin":
                 # MODIFICADO: Se agrega PROVEEDOR y se deja la lista deshabilitada VACÍA (Todo es editable)
-                c1_cols = ['Eliminar', 'Cliente', 'Producto', 'Serial', 'Falla', 'Compra', 'PROVEEDOR', 'Aceptado']
-                esta_deshabilitado_t1 = []
+                c1_cols = ['Eliminar', 'Foto', 'Cliente', 'Producto', 'Serial', 'Falla', 'Compra', 'PROVEEDOR', 'Aceptado']
+                esta_deshabilitado_t1 = ['Foto']
             else:
-                c1_cols = ['Eliminar', 'Cliente', 'Producto', 'Serial', 'Falla', 'PROVEEDOR']
-                esta_deshabilitado_t1 = ['Cliente', 'Producto', 'Serial', 'Falla', 'PROVEEDOR']
+                c1_cols = ['Eliminar', 'Foto', 'Cliente', 'Producto', 'Serial', 'Falla', 'PROVEEDOR']
+                esta_deshabilitado_t1 = ['Foto', 'Cliente', 'Producto', 'Serial', 'Falla', 'PROVEEDOR']
             
             ed1 = st.data_editor(
                 df1[['row_number'] + c1_cols].reset_index(drop=True), 
                 column_config={
                     "row_number": None,
-                    "Eliminar": st.column_config.CheckboxColumn("🗑️", width="small", help="Seleccione para eliminar este registro")
+                    "Eliminar": st.column_config.CheckboxColumn("🗑️", width="small", help="Seleccione para eliminar este registro"),
+                    "PROVEEDOR": st.column_config.TextColumn("PROVEEDOR"),
+                    "Foto": st.column_config.ImageColumn("📷", width="small", help="Foto adjunta por el cliente (pasá el mouse para agrandar)"),
+                    "Aceptado": st.column_config.CheckboxColumn("Aceptado"),
                 }, 
                 disabled=esta_deshabilitado_t1, 
                 hide_index=True, 
@@ -604,11 +643,18 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                     campos_a_revisar = ['Aceptado', 'Cliente', 'Producto', 'Serial', 'Falla', 'PROVEEDOR']
                     up = {}
                     for k in campos_a_revisar:
-                        if k in r and str(r[k]) != str(orig.get(k, "")):
-                           if k in ['Aceptado', 'Finalizado']:
-                                up[k] = booleano_a_sheets(bool(r[k]))
-                           else:
-                                up[k] = r[k]
+                        if k not in r:
+                            continue
+                        if k in ['Aceptado', 'Finalizado']:
+                            if es_verdadero(r[k]) != es_verdadero(orig.get(k, False)):
+                                up[k] = booleano_a_sheets(es_verdadero(r[k]))
+                        else:
+                            # Una celda borrada en el editor llega como None/NaN: se guarda vacía
+                            # (antes se comparaba/guardaba el texto "None").
+                            v_nuevo = "" if pd.isna(r[k]) else str(r[k]).strip()
+                            v_orig = str(orig.get(k, "") or "").strip()
+                            if v_nuevo != v_orig:
+                                up[k] = v_nuevo
                     
                     if 'Compra' in r:
                         f, e = formatear_y_validar_fecha(r['Compra'])
@@ -708,7 +754,8 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                         
                 # ✅ CORREGIDO: un solo request en lugar de N loops
                 if records_to_update:
-                    batch_update_records(records_to_update)
+                    if not batch_update_records(records_to_update):
+                        st.session_state['t1_msg_error'] = "❌ No se pudieron guardar los cambios de la Tabla 1 en Google Sheets."
                         
                 clear_cache()
                 st.rerun()
@@ -749,7 +796,15 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
         )
         orden_col = ORDEN_OPCIONES[orden_label]
         df2_sorted = df2.sort_values(by=orden_col, ascending=True).reset_index(drop=True)
-        col_cnt.caption(f"**{len(df2_sorted)}** tickets en proceso")
+        df2_sin_recibir = df2_sorted[df2_sorted['Recibido'] != True].reset_index(drop=True)
+        df2_recibidos   = df2_sorted[df2_sorted['Recibido'] == True].reset_index(drop=True)
+        col_cnt.caption(
+            f"**{len(df2_sorted)}** tickets en proceso · "
+            f"**{len(df2_sin_recibir)}** sin recibir · **{len(df2_recibidos)}** recibidos"
+        )
+
+        if st.session_state.get('t2_msg_error'):
+            st.error(st.session_state.pop('t2_msg_error'))
 
         st.markdown("""
         <style>
@@ -784,23 +839,17 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
             label = e if e else "SIN ESTADO"
             return f'<span class="rma-badge {cls}">{label}</span>'
 
-        ultimo_grupo = None
+        def _toggle_recibido(rn, key):
+            """Guarda el tilde de 'Recibido' apenas se hace clic."""
+            nuevo_valor = bool(st.session_state.get(key, False))
+            ok = batch_update_records([{"row": rn, "data": {"Recibido": booleano_a_sheets(nuevo_valor)}}])
+            if ok:
+                clear_cache()
+            else:
+                st.session_state['t2_msg_error'] = "❌ No se pudo guardar 'Recibido' en Google Sheets. Probá de nuevo."
 
-        for _, row in df2_sorted.iterrows():
+        def _render_tarjeta_t2(row):
             rn = row['row_number']
-
-            # Separador de grupo (si no es por RMA)
-            if orden_col != "autonumero":
-                grupo_actual = str(row[orden_col]).strip()
-                if grupo_actual != ultimo_grupo:
-                    st.markdown(
-                        f"<div style='margin:4px 0 2px 0; color:#8ba8d0; "
-                        f"font-size:11px; font-weight:700; letter-spacing:.08em; "
-                        f"text-transform:uppercase; border-bottom:1px solid #2d3a52; "
-                        f"padding-bottom:4px;'>{grupo_actual}</div>",
-                        unsafe_allow_html=True
-                    )
-                    ultimo_grupo = grupo_actual
 
             # Header de la tarjeta
             header_html = (
@@ -817,14 +866,25 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 f'</div>'
             )
 
-            with st.expander(f"#{row['autonumero']}  {row['Cliente']}  —  {row['Producto']}{'  📎' if (str(row.get('Foto1','')).strip() or str(row.get('Foto2','')).strip()) else ''}", expanded=False):
+            # Checkbox "Recibido" al costado de la tarjeta (se guarda al tildar, sin abrirla)
+            c_chk, c_exp = st.columns([1, 11], gap="small", vertical_alignment="center")
+            key_rec = f"rec_{rn}"
+            st.session_state[key_rec] = bool(row['Recibido'])  # la planilla manda
+            c_chk.checkbox(
+                "Recibido", key=key_rec, label_visibility="collapsed",
+                help="Recibido", on_change=_toggle_recibido, args=(rn, key_rec)
+            )
+
+            with c_exp, st.expander(f"#{row['autonumero']}  {row['Cliente']}  —  {row['Producto']}{'  📎' if (str(row.get('Foto1','')).strip() or str(row.get('Foto2','')).strip()) else ''}", expanded=False):
                 st.markdown(header_html, unsafe_allow_html=True)
                 st.markdown("<hr style='margin:8px 0;border-color:#333;'>", unsafe_allow_html=True)
 
                 # Info de solo lectura
-                ci1, ci2, ci3, ci4 = st.columns(4)
+                # (2x2 porque ahora cada tarjeta ocupa media pantalla)
+                ci1, ci2 = st.columns(2)
                 ci1.markdown(f"**Serial**<br>{row['Serial'] or '—'}", unsafe_allow_html=True)
                 ci2.markdown(f"**Falla**<br>{row['Falla'] or '—'}", unsafe_allow_html=True)
+                ci3, ci4 = st.columns(2)
                 ci3.markdown(f"**Ingreso**<br>{row['Ingreso'] or '—'}", unsafe_allow_html=True)
                 ci4.markdown(f"**Compra**<br>{row['Compra'] or '—'}", unsafe_allow_html=True)
 
@@ -834,17 +894,27 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 if foto1_val or foto2_val:
                     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
                     fotos_presentes = [v for v in [foto1_val, foto2_val] if v]
-                    cols_fotos = st.columns(4)
-                    for idx_f, file_id in enumerate(fotos_presentes):
-                        foto_bytes = descargar_foto_de_drive(file_id)
-                        if not foto_bytes:
+                    with st.container(border=True):
+                        st.caption("📷 Fotos adjuntas por el cliente")
+                        cols_fotos = st.columns(2)
+                        for idx_f, valor_foto in enumerate(fotos_presentes):
                             with cols_fotos[idx_f]:
-                                st.caption(f"⚠️ Foto {idx_f + 1} no disponible")
-                            continue
-                        with cols_fotos[idx_f]:
-                            st.image(foto_bytes, width=90, caption=f"Foto {idx_f + 1}")
-                            with st.popover("🔍 Ampliar", key=f"pop_foto_{rn}_{idx_f}"):
-                                st.image(foto_bytes, use_container_width=True)
+                                if es_url_foto(valor_foto):
+                                    # Cloudinary: el navegador carga la miniatura directo, sin pasar por el servidor
+                                    st.image(miniatura_cloudinary(valor_foto, 240, 240), width=120,
+                                             caption=f"Foto {idx_f + 1}")
+                                    with st.popover("🔍 Ampliar", key=f"pop_foto_{rn}_{idx_f}"):
+                                        st.image(valor_foto, use_container_width=True)
+                                        st.link_button("Abrir original ↗", valor_foto)
+                                else:
+                                    # Ticket viejo con la foto en Drive
+                                    foto_bytes = descargar_foto_de_drive(valor_foto)
+                                    if not foto_bytes:
+                                        st.caption(f"⚠️ Foto {idx_f + 1} no disponible")
+                                        continue
+                                    st.image(foto_bytes, width=120, caption=f"Foto {idx_f + 1}")
+                                    with st.popover("🔍 Ampliar", key=f"pop_foto_{rn}_{idx_f}"):
+                                        st.image(foto_bytes, use_container_width=True)
 
                 st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
@@ -988,6 +1058,41 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                             st.rerun()
                         else:
                             st.info("No hay cambios para guardar.")
+
+
+        def _render_columna_t2(df_col, titulo, color, msg_vacio):
+            st.markdown(
+                f"<div style='font-size:13px;font-weight:700;color:{color};"
+                f"border-bottom:2px solid {color};padding-bottom:4px;margin-bottom:6px;'>"
+                f"{titulo} ({len(df_col)})</div>",
+                unsafe_allow_html=True
+            )
+            if df_col.empty:
+                st.caption(msg_vacio)
+                return
+            ultimo_grupo = None
+            for _, row in df_col.iterrows():
+                # Separador de grupo (si no es por RMA)
+                if orden_col != "autonumero":
+                    grupo_actual = str(row[orden_col]).strip()
+                    if grupo_actual != ultimo_grupo:
+                        st.markdown(
+                            f"<div style='margin:4px 0 2px 0; color:#8ba8d0; "
+                            f"font-size:11px; font-weight:700; letter-spacing:.08em; "
+                            f"text-transform:uppercase; border-bottom:1px solid #2d3a52; "
+                            f"padding-bottom:4px;'>{grupo_actual}</div>",
+                            unsafe_allow_html=True
+                        )
+                        ultimo_grupo = grupo_actual
+                _render_tarjeta_t2(row)
+
+        col_izq, col_der = st.columns(2, gap="medium")
+        with col_izq:
+            _render_columna_t2(df2_sin_recibir, "⏳ ACEPTADOS — SIN RECIBIR", "#fd7e14",
+                               "No hay tickets pendientes de recibir.")
+        with col_der:
+            _render_columna_t2(df2_recibidos, "📦 ACEPTADOS — RECIBIDOS", "#28a745",
+                               "Todavía no hay tickets recibidos.")
 
         # ── Colores alternados por JS (inmune a separadores de grupo) ──
         import streamlit.components.v1 as components
