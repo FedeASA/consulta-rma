@@ -590,7 +590,7 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
         df1.insert(0, 'Eliminar', False)
         # Miniatura de la primera foto (solo fotos de Cloudinary; las viejas de Drive no tienen URL pública)
         df1['Foto'] = df1.apply(
-            lambda r: next((miniatura_cloudinary(v, 120, 120) for v in [r.get('Foto1', ''), r.get('Foto2', '')] if es_url_foto(v)), None),
+            lambda r: next((miniatura_cloudinary(v, 120, 120) for v in [r.get('Foto1', ''), r.get('Foto2', '')] if es_url_foto(v)), ""),
             axis=1
         )
         
@@ -824,6 +824,16 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
         .badge-gris     { background:#6c757d; color:#fff; }
         .badge-pendiente{ background:#444; color:#ccc; }
         .rma-sep { color:#555; }
+
+        /* Tarjetas de la Tabla 2: azul / celeste alternado */
+        .st-key-t2card_a_marker, [class*="st-key-t2card_a_"] details,
+        [class*="st-key-t2card_a_"] summary {
+            background-color: #0d2b45 !important; border-radius: 6px;
+        }
+        .st-key-t2card_b_marker, [class*="st-key-t2card_b_"] details,
+        [class*="st-key-t2card_b_"] summary {
+            background-color: #3a4f63 !important; border-radius: 6px;
+        }
         </style>
         """, unsafe_allow_html=True)
 
@@ -848,8 +858,11 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
             else:
                 st.session_state['t2_msg_error'] = "❌ No se pudo guardar 'Recibido' en Google Sheets. Probá de nuevo."
 
-        def _render_tarjeta_t2(row):
+        def _render_tarjeta_t2(row, posicion):
             rn = row['row_number']
+            # Color alternado azul / celeste por CSS (clase st-key-t2card_a_/b_): no depende de JS,
+            # así no se pierde cuando la tarjeta cambia de columna al tildar "Recibido".
+            tono = "a" if posicion % 2 == 0 else "b"
 
             # Header de la tarjeta
             header_html = (
@@ -869,7 +882,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
             key_rec = f"rec_{rn}"
             st.session_state[key_rec] = bool(row['Recibido'])  # la planilla manda
 
-            with st.expander(f"#{row['autonumero']}  {row['Cliente']}  —  {row['Producto']}{'  📎' if (str(row.get('Foto1','')).strip() or str(row.get('Foto2','')).strip()) else ''}", expanded=False):
+            with st.expander(f"#{row['autonumero']}  {row['Cliente']}  —  {row['Producto']}{'  📎' if (str(row.get('Foto1','')).strip() or str(row.get('Foto2','')).strip()) else ''}", expanded=False, key=f"t2card_{tono}_{rn}"):
                 # Encabezado + checkbox "Recibido" arriba a la derecha (se guarda al tildar)
                 c_head, c_chk = st.columns([4, 1], gap="small", vertical_alignment="center")
                 c_head.markdown(header_html, unsafe_allow_html=True)
@@ -1072,7 +1085,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                 st.caption(msg_vacio)
                 return
             ultimo_grupo = None
-            for _, row in df_col.iterrows():
+            for posicion, (_, row) in enumerate(df_col.iterrows()):
                 # Separador de grupo (si no es por RMA)
                 if orden_col != "autonumero":
                     grupo_actual = str(row[orden_col]).strip()
@@ -1085,7 +1098,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                             unsafe_allow_html=True
                         )
                         ultimo_grupo = grupo_actual
-                _render_tarjeta_t2(row)
+                _render_tarjeta_t2(row, posicion)
 
         col_izq, col_der = st.columns(2, gap="medium")
         with col_izq:
@@ -1095,39 +1108,6 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
             _render_columna_t2(df2_recibidos, "📦 ACEPTADOS — RECIBIDOS", "#28a745",
                                "Todavía no hay tickets recibidos.")
 
-        # ── Colores alternados por JS (inmune a separadores de grupo) ──
-        import streamlit.components.v1 as components
-        components.html("""
-<script>
-function colorCards() {
-    var doc = window.parent.document;
-    // Busca todos los expanders de nivel 2 (tarjetas dentro de la Tabla 2)
-    var outer = doc.querySelectorAll('[data-testid="stExpander"]');
-    var cards = null;
-    for (var i = 0; i < outer.length; i++) {
-        var nested = outer[i].querySelectorAll('[data-testid="stExpander"]');
-        if (nested.length >= 1 && cards === null) {
-            cards = nested;
-        }
-    }
-    if (!cards) return;
-    var colors = ['#0d2b45', '#3a4f63'];
-    for (var j = 0; j < cards.length; j++) {
-        var el = cards[j];
-        var col = colors[j % 2];
-        el.style.backgroundColor = col;
-        el.style.borderRadius = '6px';
-        var summary = el.querySelector('summary');
-        if (summary) { summary.style.backgroundColor = col; summary.style.borderRadius = '6px'; }
-    }
-}
-colorCards();
-setTimeout(colorCards, 150);
-setTimeout(colorCards, 500);
-// Re-aplicar cuando el usuario expande/colapsa una tarjeta
-window.parent.document.addEventListener('click', function() { setTimeout(colorCards, 80); });
-</script>
-""", height=0)
 
     else:
         st.info("No hay tickets en proceso.")
