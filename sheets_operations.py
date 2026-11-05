@@ -422,40 +422,19 @@ def _texto_comparable(v):
     return t.upper()
 
 
-def _fila_coincide(fila, idx_por_col, match):
-    for col, val in match.items():
-        i = idx_por_col.get(_normalizar_nombre_col(col))
-        if i is None:
-            continue
-        actual = fila[i] if i < len(fila) else ""
-        if _texto_comparable(actual) != _texto_comparable(val):
-            return False
-    return True
-
-
-def _resolver_fila(all_rows, headers, row_number, match):
-    """Devuelve el número de fila real del ticket.
-    Si la fila esperada ya no corresponde al ticket (alguien borró/movió filas),
-    lo busca en toda la hoja. Devuelve None si no lo encuentra o si hay más de uno."""
-    if not match:
-        return row_number
-    idx_por_col = {_normalizar_nombre_col(h): i for i, h in enumerate(headers)}
-    if 2 <= row_number <= len(all_rows) and _fila_coincide(all_rows[row_number - 1], idx_por_col, match):
-        return row_number
-    candidatas = [n + 1 for n, fila in enumerate(all_rows) if n >= 1 and _fila_coincide(fila, idx_por_col, match)]
-    return candidatas[0] if len(candidatas) == 1 else None
-
-
 def batch_update_records(records_to_update, sheet_name="Proveedores", worksheet_name="RMA ALTAVISTA"):
     """
-    ✅ NUEVO: Actualiza MÚLTIPLES filas en el menor número de requests posible.
-    Usar esto en lugar de llamar update_record en un loop.
-    
+    Actualiza varias celdas en el menor número de requests posible.
+
     Args:
         records_to_update: lista de {"row": row_number, "data": {campo: valor},
                                      "match": {columna: valor}}   # match es opcional
             Con "match" (ej. {"autonumero": "123"}) se verifica que la fila siga siendo
             ese ticket antes de escribir; si se movió, se busca por ese dato.
+
+    Rendimiento: ya no lee toda la hoja ni reescribe filas completas.
+      - 1 lectura chica: solo las columnas usadas para identificar los tickets (ej. autonumero).
+      - 1 escritura: solo las celdas que cambian.
     """
     if not records_to_update:
         return True
@@ -463,41 +442,72 @@ def batch_update_records(records_to_update, sheet_name="Proveedores", worksheet_
     worksheet = get_sheet(sheet_name, worksheet_name)
     try:
         headers = _get_cached_headers(sheet_name, worksheet_name)
+        idx_por_col = {_normalizar_nombre_col(h): i for i, h in enumerate(headers)}
 
-        # Una sola lectura de TODOS los datos actuales
-        all_rows = _safe_api_call(lambda: worksheet.get_all_values())
+        # --- 1. Leer solo las columnas necesarias para ubicar los tickets ---
+        cols_match = sorted({
+            idx_por_col[_normalizar_nombre_col(c)]
+            for rec in records_to_update for c in (rec.get("match") or {})
+            if _normalizar_nombre_col(c) in idx_por_col
+        })
+        columnas = {}
+        if cols_match:
+            rangos = []
+            for ci in cols_match:
+                letra = gspread.utils.rowcol_to_a1(1, ci + 1).rstrip("0123456789")
+                rangos.append(f"{letra}:{letra}")
+            resp = _safe_api_call(lambda: worksheet.batch_get(rangos, major_dimension="COLUMNS"))
+            for ci, vr in zip(cols_match, resp):
+                columnas[ci] = list(vr[0]) if vr else []
+        total_filas = max((len(v) for v in columnas.values()), default=0)
 
+        def _coincide(n_fila, match):
+            for col, val in match.items():
+                ci = idx_por_col.get(_normalizar_nombre_col(col))
+                if ci is None:
+                    continue
+                col_vals = columnas.get(ci, [])
+                actual = col_vals[n_fila - 1] if n_fila - 1 < len(col_vals) else ""
+                if _texto_comparable(actual) != _texto_comparable(val):
+                    return False
+            return True
+
+        def _resolver(row_number, match):
+            if not match:
+                return row_number
+            if 2 <= row_number <= total_filas and _coincide(row_number, match):
+                return row_number
+            candidatas = [n for n in range(2, total_filas + 1) if _coincide(n, match)]
+            return candidatas[0] if len(candidatas) == 1 else None
+
+        # --- 2. Armar solo las celdas que cambian ---
         batch_data = []
         no_encontrados = []
+        faltantes_avisadas = set()
         for rec in records_to_update:
-            data = rec["data"]
-            row_number = _resolver_fila(all_rows, headers, int(rec["row"]), rec.get("match"))
-            if row_number is None:
+            row_number = _resolver(int(rec["row"]), rec.get("match"))
+            if row_number is None or row_number < 2:
                 no_encontrados.append(rec.get("match") or rec["row"])
                 continue
+            rec["row_real"] = row_number
+            for campo, valor in rec["data"].items():
+                ci = idx_por_col.get(_normalizar_nombre_col(campo))
+                if ci is None:
+                    faltantes_avisadas.add(campo)
+                    continue
+                batch_data.append({
+                    "range": gspread.utils.rowcol_to_a1(row_number, ci + 1),
+                    "values": [[_valor_celda(valor)]],
+                })
 
-            if row_number < 2 or row_number > len(all_rows) + 1:
-                continue
-
-            current_row = all_rows[row_number - 1]  # 0-indexed
-
-            data_n = _datos_normalizados(data, headers)
-            new_row = []
-            for i, header in enumerate(headers):
-                hn = _normalizar_nombre_col(header)
-                if hn in data_n:
-                    new_row.append(_valor_celda(data_n[hn]))
-                else:
-                    new_row.append(str(current_row[i]) if i < len(current_row) else "")
-
-            col_end_letter = gspread.utils.rowcol_to_a1(row_number, len(headers))
-            batch_data.append({
-                "range": f"A{row_number}:{col_end_letter}",
-                "values": [new_row]
-            })
+        if faltantes_avisadas:
+            st.warning(
+                "⚠️ Estas columnas no existen en la planilla y no se guardaron: "
+                + ", ".join(sorted(faltantes_avisadas))
+                + ". Agregá el encabezado en la fila 1 de la hoja."
+            )
 
         if batch_data:
-            # ✅ UN SOLO request para actualizar todas las filas
             _safe_api_call(lambda: worksheet.batch_update(batch_data))
 
         if no_encontrados:
