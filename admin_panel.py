@@ -11,7 +11,6 @@ from sheets_operations import (
     get_all_records,
     update_record,
     batch_update_records,
-    delete_row,
     find_row_by_values,
     clear_cache,
     descargar_foto_de_drive,
@@ -297,8 +296,8 @@ df_all = cargar_todos_los_datos()
 
 # --- VERIFICACIÓN Y COMPATIBILIDAD DE COLUMNAS (AL INICIO PARA EVITAR DESFASES) ---
 if not df_all.empty:
-    columnas_requeridas = ['Aceptado', 'Finalizado', 'Recibido', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']
-    COLS_BOOL = ['Aceptado', 'Finalizado', 'Recibido']
+    columnas_requeridas = ['Aceptado', 'Finalizado', 'Recibido', 'Anulado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']
+    COLS_BOOL = ['Aceptado', 'Finalizado', 'Recibido', 'Anulado']
 
     # Si en la planilla el encabezado está escrito distinto ("Proveedor", "PROVEEDOR ",
     # "recibido"...), se renombra al nombre que usa el código. Antes se creaba una columna
@@ -317,7 +316,7 @@ if not df_all.empty:
         df_all = df_all.rename(columns=_renombres)
 
     # Columnas que el panel necesita y NO existen en la planilla: se avisa al admin
-    COLS_FALTANTES_SHEET = [c for c in ['PROVEEDOR', 'Recibido', 'Foto1', 'Foto2'] if c not in df_all.columns]
+    COLS_FALTANTES_SHEET = [c for c in ['PROVEEDOR', 'Recibido', 'Anulado', 'Foto1', 'Foto2'] if c not in df_all.columns]
 
     for col in columnas_requeridas:
         if col not in df_all.columns: 
@@ -342,6 +341,28 @@ else:
         st.cache_data.clear()
         st.rerun()
     st.stop()
+
+# --- IDENTIDAD DE CADA TICKET + ANULADOS ---
+# Al guardar se verifica que la fila siga siendo el mismo ticket (por Nº de RMA, o por
+# Cliente+Producto+Serial si todavía no tiene número). Si alguien movió filas, se busca.
+def _firma_ticket(r):
+    rma = str(r.get('autonumero', '')).strip()
+    if rma:
+        return {"autonumero": rma}
+    return {"Cliente": r.get('Cliente', ''), "Producto": r.get('Producto', ''), "Serial": r.get('Serial', '')}
+
+FIRMAS_TICKETS = {int(r['row_number']): _firma_ticket(r) for _, r in df_all.iterrows()}
+
+def guardar_registros(records):
+    """batch_update_records + verificación de identidad del ticket."""
+    for rec in records:
+        rec.setdefault("match", FIRMAS_TICKETS.get(int(rec["row"])))
+    return batch_update_records(records)
+
+# Para calcular el próximo Nº de RMA se usan TODOS los tickets, incluidos los anulados
+df_all_completo = df_all
+# Los tickets anulados quedan en la planilla pero no se muestran en el panel
+df_all = df_all[df_all['Anulado'] != True].copy()
 
 # --- LIMPIEZA AUTOMÁTICA DE FOTOS VENCIDAS ---
 # Borra de Drive (y limpia en la planilla) las fotos de casos finalizados
@@ -381,7 +402,7 @@ def limpiar_fotos_vencidas(dias_retencion=DIAS_RETENCION_FOTOS):
             actualizaciones.append({"row": r['row_number'], "data": cambios})
 
     if actualizaciones:
-        batch_update_records(actualizaciones)
+        guardar_registros(actualizaciones)
         clear_cache()
         return True
 
@@ -583,6 +604,8 @@ df1 = df_all[
 with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
     if st.session_state.get('t1_msg_error'):
         st.error(st.session_state.pop('t1_msg_error'))
+    if st.session_state.get('t1_msg_ok'):
+        st.success(st.session_state.pop('t1_msg_ok'))
     if not df1.empty:
         if 'Compra' in df1.columns:
             df1 = df1.sort_values(by='Compra', ascending=False)
@@ -608,7 +631,7 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                 df1[['row_number'] + c1_cols].reset_index(drop=True), 
                 column_config={
                     "row_number": None,
-                    "Eliminar": st.column_config.CheckboxColumn("🗑️", width="small", help="Seleccione para eliminar este registro"),
+                    "Eliminar": st.column_config.CheckboxColumn("🚫", width="small", help="Seleccione para anular este ticket"),
                     "PROVEEDOR": st.column_config.TextColumn("PROVEEDOR"),
                     "Foto": st.column_config.ImageColumn("📷", width="small", help="Foto adjunta por el cliente (pasá el mouse para agrandar)"),
                     "Aceptado": st.column_config.CheckboxColumn("Aceptado"),
@@ -624,13 +647,13 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
             with col_btn_guardar:
                 submit_guardar = st.form_submit_button("GUARDAR ENTRADAS", disabled=(st.session_state.rol != "admin"), use_container_width=True)
             with col_chk_elim:
-                confirmar_borrado = st.checkbox("Confirmo que deseo ELIMINAR los registros seleccionados.")
+                confirmar_borrado = st.checkbox("Confirmo que deseo ANULAR los tickets seleccionados.")
             with col_btn_elim:
-                submit_eliminar = st.form_submit_button("🗑️ ELIMINAR REGISTROS", use_container_width=True)
+                submit_eliminar = st.form_submit_button("🚫 ANULAR TICKETS", use_container_width=True)
             
             if submit_guardar and st.session_state.rol == "admin":
                 records_to_update = []
-                _numeros_existentes = pd.to_numeric(df_all['autonumero'], errors='coerce').dropna()
+                _numeros_existentes = pd.to_numeric(df_all_completo['autonumero'], errors='coerce').dropna()
                 _proximo_rma = int(_numeros_existentes.max() + 1) if not _numeros_existentes.empty else 1
 
                 for _, r in ed1.iterrows():
@@ -757,24 +780,29 @@ with st.expander("📥 1. TICKETS POR ACEPTAR (Entrada)", expanded=True):
                         
                 # ✅ CORREGIDO: un solo request en lugar de N loops
                 if records_to_update:
-                    if not batch_update_records(records_to_update):
+                    if not guardar_registros(records_to_update):
                         st.session_state['t1_msg_error'] = "❌ No se pudieron guardar los cambios de la Tabla 1 en Google Sheets."
                         
                 clear_cache()
                 st.rerun()
 
             if submit_eliminar:
-                registros_a_borrar = ed1[ed1['Eliminar'] == True]['row_number'].tolist()
-                if not registros_a_borrar:
-                    st.warning("No seleccionaste ningún registro para eliminar.")
+                registros_a_anular = ed1[ed1['Eliminar'] == True]['row_number'].tolist()
+                if not registros_a_anular:
+                    st.warning("No seleccionaste ningún ticket para anular.")
                 elif not confirmar_borrado:
-                    st.error("Debes tildar la casilla de confirmación central para habilitar la eliminación.")
+                    st.error("Debes tildar la casilla de confirmación central para habilitar la anulación.")
                 else:
-                    # De la fila más baja a la más alta: si se borra primero una de arriba,
-                    # las de abajo suben un lugar y se terminaba borrando la fila equivocada.
-                    for row_borrar in sorted(registros_a_borrar, reverse=True):
-                        delete_row(int(row_borrar))
-                    st.success(f"¡Se eliminaron {len(registros_a_borrar)} registros correctamente!")
+                    # Ya no se borran filas: se marca Anulado = Sí y el ticket se oculta del panel.
+                    # Así la numeración no se corre y el ticket se puede recuperar desde la planilla.
+                    ok = guardar_registros([
+                        {"row": int(rn_a), "data": {"Anulado": booleano_a_sheets(True)}}
+                        for rn_a in registros_a_anular
+                    ])
+                    if ok:
+                        st.session_state['t1_msg_ok'] = f"🚫 Se anularon {len(registros_a_anular)} ticket(s)."
+                    else:
+                        st.session_state['t1_msg_error'] = "❌ No se pudieron anular todos los tickets seleccionados."
                     clear_cache()
                     st.rerun()
     else:
@@ -867,7 +895,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
         def _toggle_recibido(rn, key):
             """Guarda el tilde de 'Recibido' apenas se hace clic."""
             nuevo_valor = bool(st.session_state.get(key, False))
-            ok = batch_update_records([{"row": rn, "data": {"Recibido": booleano_a_sheets(nuevo_valor)}}])
+            ok = guardar_registros([{"row": rn, "data": {"Recibido": booleano_a_sheets(nuevo_valor)}}])
             if ok:
                 clear_cache()
             else:
@@ -1083,7 +1111,7 @@ with st.expander("⚙️ 2. TICKETS EN PROCESO (Aceptados)", expanded=True):
                                 despachar_correo("EMAIL_CLIENTE", email_val, asunto_email, cuerpo_email)
 
                         if up:
-                            batch_update_records([{"row": rn, "data": up}])
+                            guardar_registros([{"row": rn, "data": up}])
                             clear_cache()
                             st.rerun()
                         else:
@@ -1192,7 +1220,7 @@ with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
                 
                 # ✅ CORREGIDO: un solo request en lugar de N loops
                 if records_to_update:
-                    batch_update_records(records_to_update)
+                    guardar_registros(records_to_update)
                         
                 clear_cache()
                 st.rerun()

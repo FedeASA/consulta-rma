@@ -411,13 +411,51 @@ def update_record(row_number, data, sheet_name="Proveedores", worksheet_name="RM
         return False
 
 
+def _texto_comparable(v):
+    t = str(v if v is not None else "").strip()
+    try:
+        f = float(t)
+        if f.is_integer():
+            return str(int(f))
+    except ValueError:
+        pass
+    return t.upper()
+
+
+def _fila_coincide(fila, idx_por_col, match):
+    for col, val in match.items():
+        i = idx_por_col.get(_normalizar_nombre_col(col))
+        if i is None:
+            continue
+        actual = fila[i] if i < len(fila) else ""
+        if _texto_comparable(actual) != _texto_comparable(val):
+            return False
+    return True
+
+
+def _resolver_fila(all_rows, headers, row_number, match):
+    """Devuelve el número de fila real del ticket.
+    Si la fila esperada ya no corresponde al ticket (alguien borró/movió filas),
+    lo busca en toda la hoja. Devuelve None si no lo encuentra o si hay más de uno."""
+    if not match:
+        return row_number
+    idx_por_col = {_normalizar_nombre_col(h): i for i, h in enumerate(headers)}
+    if 2 <= row_number <= len(all_rows) and _fila_coincide(all_rows[row_number - 1], idx_por_col, match):
+        return row_number
+    candidatas = [n + 1 for n, fila in enumerate(all_rows) if n >= 1 and _fila_coincide(fila, idx_por_col, match)]
+    return candidatas[0] if len(candidatas) == 1 else None
+
+
 def batch_update_records(records_to_update, sheet_name="Proveedores", worksheet_name="RMA ALTAVISTA"):
     """
     ✅ NUEVO: Actualiza MÚLTIPLES filas en el menor número de requests posible.
     Usar esto en lugar de llamar update_record en un loop.
     
     Args:
-        records_to_update: lista de {"row": row_number, "data": {campo: valor}}
+        records_to_update: lista de {"row": row_number, "data": {campo: valor},
+                                     "match": {columna: valor}}   # match es opcional
+            Con "match" (ej. {"autonumero": "123"}) se verifica que la fila siga siendo
+            ese ticket antes de escribir; si se movió, se busca por ese dato.
     """
     if not records_to_update:
         return True
@@ -430,9 +468,13 @@ def batch_update_records(records_to_update, sheet_name="Proveedores", worksheet_
         all_rows = _safe_api_call(lambda: worksheet.get_all_values())
 
         batch_data = []
+        no_encontrados = []
         for rec in records_to_update:
-            row_number = rec["row"]
             data = rec["data"]
+            row_number = _resolver_fila(all_rows, headers, int(rec["row"]), rec.get("match"))
+            if row_number is None:
+                no_encontrados.append(rec.get("match") or rec["row"])
+                continue
 
             if row_number < 2 or row_number > len(all_rows) + 1:
                 continue
@@ -458,6 +500,12 @@ def batch_update_records(records_to_update, sheet_name="Proveedores", worksheet_
             # ✅ UN SOLO request para actualizar todas las filas
             _safe_api_call(lambda: worksheet.batch_update(batch_data))
 
+        if no_encontrados:
+            st.warning(
+                "⚠️ No se guardaron cambios en algunos tickets porque ya no están en la planilla "
+                f"(¿los modificó o anuló otra persona?): {no_encontrados}. Actualizá el panel."
+            )
+            return False
         return True
     except Exception as e:
         st.warning(f"⚠️ Error en batch_update_records: {e}")
