@@ -287,7 +287,7 @@ COLS_TEXTO = ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Co
 
 def _procesar_df(df):
     """Normaliza encabezados, tipos y textos. Devuelve (df, columnas_faltantes_en_planilla)."""
-    columnas_requeridas = ['Aceptado', 'Finalizado', 'Recibido', 'Anulado', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']
+    columnas_requeridas = ['Aceptado', 'Finalizado', 'Recibido', 'Anulado', 'FechaRecibido', 'Ingreso', 'Resolucion', 'diagnostico', 'Estado del RMA', 'Compra', 'Producto', 'comentario', 'Falla', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']
     COLS_BOOL = ['Aceptado', 'Finalizado', 'Recibido', 'Anulado']
 
     # Si en la planilla el encabezado está escrito distinto ("Proveedor", "PROVEEDOR ",
@@ -307,7 +307,7 @@ def _procesar_df(df):
         df = df.rename(columns=_renombres)
 
     # Columnas que el panel necesita y NO existen en la planilla: se avisa al admin
-    COLS_FALTANTES_SHEET = [c for c in ['PROVEEDOR', 'Recibido', 'Anulado', 'Foto1', 'Foto2'] if c not in df.columns]
+    COLS_FALTANTES_SHEET = [c for c in ['PROVEEDOR', 'Recibido', 'Anulado', 'FechaRecibido', 'Foto1', 'Foto2'] if c not in df.columns]
 
     for col in columnas_requeridas:
         if col not in df.columns: 
@@ -316,7 +316,7 @@ def _procesar_df(df):
             if col in COLS_BOOL:
                 df[col] = df[col].apply(lambda x: es_verdadero(x))
 
-    for col_txt in ['comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']:
+    for col_txt in ['FechaRecibido', 'comentario', 'Falla', 'diagnostico', 'Ingreso', 'Resolucion', 'Compra', 'Cliente', 'Producto', 'Serial', 'autonumero', 'Telefono', 'Email', 'Motivo del trámite', 'PROVEEDOR', 'Foto1', 'Foto2']:
         if col_txt in df.columns:
             df[col_txt] = df[col_txt].fillna("").apply(lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else str(x))
             df[col_txt] = df[col_txt].apply(lambda x: "" if str(x).strip() in ["None", "none", "nan", "NaN", ""] else str(x).strip())
@@ -651,6 +651,81 @@ elif opcion_reporte == "🚚 Reporte Viaje":
 
 st.divider()
 
+# --- AVISO "PRODUCTO RECIBIDO" ---
+def notificar_recibido(fila, fecha_recibido):
+    """Avisa al cliente que su producto llegó. Igual que aceptado/finalizado:
+    - Cliente con WhatsApp: mail interno con el botón de WhatsApp y el mensaje listo.
+    - Cliente con email: mail directo al cliente.
+    Devuelve un texto corto para mostrar en pantalla."""
+    import urllib.parse
+    rma_id         = str(fila.get('autonumero', '')).strip()
+    cliente_nom    = str(fila.get('Cliente', '')).strip()
+    prod_nom       = str(fila.get('Producto', '')).strip()
+    serial_num     = str(fila.get('Serial', '')).strip()
+    motivo_tramite = str(fila.get('Motivo del trámite', '') or 'RMA').strip() or 'RMA'
+    fecha_txt      = formatear_para_leer(fecha_recibido)
+    telefono_val   = normalizar_telefono(fila.get('Telefono', ''))
+    email_val      = str(fila.get('Email', '')).strip().lower()
+
+    if telefono_val:
+        mensaje_wa = (
+            f"Recibimos su producto {prod_nom} correspondiente al caso #{rma_id}.\n\n"
+            f"Serial: {serial_num}\n"
+            f"Fecha de recepción: {fecha_txt}\n\n"
+            f"Nuestro equipo técnico lo va a revisar y le notificaremos por este canal cuando tengamos novedades.\n\n"
+            f"Puede consultar el estado de su caso en:\n"
+            f"https://rma-altavista.streamlit.app/\n\n"
+            f"Servicio Técnico: 3433002458\n"
+            f"Ventas: 3434469399\n"
+            f"Email: federico@altavistasa.com.ar"
+        )
+        link_wa = f"https://wa.me/{telefono_val}?text={urllib.parse.quote(mensaje_wa)}"
+        cuerpo_html = (
+            '<html><body>'
+            '<p><b>PRODUCTO RECIBIDO &#8212; MENSAJE PARA CLIENTE</b></p>'
+            '<table style="border-collapse:collapse;margin-bottom:16px;">'
+            f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Tel&eacute;fono</td><td><b>{telefono_val}</b></td></tr>'
+            f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Caso</td><td><b>#{rma_id}</b></td></tr>'
+            f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Cliente</td><td>{cliente_nom}</td></tr>'
+            f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Producto</td><td>{prod_nom}</td></tr>'
+            f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Serial</td><td>{serial_num}</td></tr>'
+            f'  <tr><td style="padding:4px 12px 4px 0;color:#888;">Recibido</td><td>{fecha_txt}</td></tr>'
+            '</table>'
+            f'<a href="{link_wa}" style="display:inline-block;background-color:#25D366;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;font-size:15px;">'
+            '  &#128242; Abrir WhatsApp y enviar mensaje'
+            '</a>'
+            '<p style="margin-top:16px;color:#888;font-size:12px;">'
+            '  Si el bot&oacute;n no funciona, copi&aacute; este enlace:<br>'
+            f'  <a href="{link_wa}">{link_wa}</a>'
+            '</p>'
+            '</body></html>'
+        )
+        ok_mail = despachar_correo("EMAIL_INTERNO", "federico@altavistasa.com.ar",
+                                   f"Producto recibido #{rma_id} - Mensaje para el cliente", cuerpo_html, html=True)
+        return ("📨 Te mandé el mail con el WhatsApp de aviso de recibido." if ok_mail
+                else "⚠️ Se marcó como recibido, pero no se pudo enviar el mail interno con el WhatsApp.")
+
+    if email_val:
+        asunto_email = f"ALTAVISTA SA – {motivo_tramite} - Recibimos su producto (caso #{rma_id})"
+        cuerpo_email = (
+            f"Recibimos su producto {prod_nom} correspondiente al caso #{rma_id}.\n\n"
+            f"--------------------------------------------------\n\n"
+            f"Producto: {prod_nom}\n"
+            f"Serial: {serial_num}\n"
+            f"Fecha de recepción: {fecha_txt}\n\n"
+            f"--------------------------------------------------\n\n"
+            f"Nuestro equipo técnico lo va a revisar y le notificaremos por este canal cuando tengamos novedades.\n\n"
+            f"Puede consultar el estado de su caso en https://rma-altavista.streamlit.app/\n\n"
+            f"Recuerde que nos puede contactar en:\n"
+            f"WhatsApp: 3433002458\n"
+            f"Email: federico@altavistasa.com.ar"
+        )
+        ok_mail = despachar_correo("EMAIL_CLIENTE", email_val, asunto_email, cuerpo_email)
+        return (f"📨 Aviso de recibido enviado a {email_val}." if ok_mail
+                else f"⚠️ Se marcó como recibido, pero no se pudo enviar el aviso a {email_val}.")
+
+    return "⚠️ El ticket no tiene teléfono ni email: no se envió aviso de recibido."
+
 # --- TABLA 1: POR ACEPTAR ---
 # (fragmento: un cambio acá re-ejecuta solo esta tabla, no todo el panel)
 @st.fragment
@@ -958,11 +1033,28 @@ def tabla_2():
                     st.link_button("Abrir original en otra pestaña ↗", origen)
 
             def _toggle_recibido(rn, key):
-                """Guarda el tilde de 'Recibido' apenas se hace clic."""
+                """Guarda el tilde de 'Recibido' apenas se hace clic.
+                La PRIMERA vez que se tilda: guarda FechaRecibido y avisa al cliente.
+                Si después se destilda y se vuelve a tildar, no se repite el aviso
+                (la fecha ya quedó guardada)."""
                 nuevo_valor = bool(st.session_state.get(key, False))
-                ok = guardar_registros([{"row": rn, "data": {"Recibido": booleano_a_sheets(nuevo_valor)}}])
+                df_b = st.session_state.get('df_base')
+                fila = df_b[df_b['row_number'] == rn].iloc[0].to_dict() if df_b is not None and (df_b['row_number'] == rn).any() else {}
+                primera_vez = nuevo_valor and not str(fila.get('FechaRecibido', '')).strip()
+
+                datos = {"Recibido": booleano_a_sheets(nuevo_valor)}
+                if primera_vez:
+                    fecha_hoy = date.today().strftime('%Y-%m-%d')
+                    datos["FechaRecibido"] = fecha_hoy
+                ok = guardar_registros([{"row": rn, "data": datos}])
                 if not ok:
                     st.session_state['t2_msg_error'] = "❌ No se pudo guardar 'Recibido' en Google Sheets. Probá de nuevo."
+                    return
+                if primera_vez:
+                    try:
+                        st.toast(notificar_recibido(fila, fecha_hoy))
+                    except Exception as e:
+                        st.session_state['t2_msg_error'] = f"⚠️ Se marcó como recibido, pero falló el aviso al cliente: {e}"
 
             def _render_tarjeta_t2(row, posicion):
                 rn = row['row_number']
@@ -996,6 +1088,8 @@ def tabla_2():
                         "📦 Recibido", key=key_rec,
                         on_change=_toggle_recibido, args=(rn, key_rec)
                     )
+                    if row.get('Recibido') and str(row.get('FechaRecibido', '')).strip():
+                        c_chk.caption(f"el {formatear_para_leer(row['FechaRecibido'])}")
                     st.markdown("<hr style='margin:8px 0;border-color:#333;'>", unsafe_allow_html=True)
 
                     # Info de solo lectura
