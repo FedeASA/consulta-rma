@@ -37,6 +37,40 @@ def obtener_fecha_ordenamiento(record):
             continue
     return datetime.min
 
+def _tiene_valor(v):
+    return bool(v) and str(v).strip() not in ["None", "none", "nan", "NaN", ""]
+
+def historial_html(record):
+    """Línea de tiempo del caso: Solicitud cargada → Aceptado → Producto recibido → Finalizado."""
+    aceptado   = es_verdadero(record.get('Aceptado'))
+    recibido   = es_verdadero(record.get('Recibido')) or _tiene_valor(record.get('FechaRecibido'))
+    finalizado = es_verdadero(record.get('Finalizado'))
+
+    pasos = [
+        ("📝", "Solicitud cargada",
+         True, formatear_fecha_cliente(record.get('Ingreso')) if _tiene_valor(record.get('Ingreso')) else ""),
+        ("✅", "Caso aceptado",
+         aceptado, f"N° {record.get('autonumero')}" if aceptado and _tiene_valor(record.get('autonumero')) else ""),
+        ("📦", "Producto recibido",
+         recibido, formatear_fecha_cliente(record.get('FechaRecibido')) if _tiene_valor(record.get('FechaRecibido')) else ""),
+        ("🏁", "Caso finalizado",
+         finalizado, formatear_fecha_cliente(record.get('Resolucion')) if finalizado and _tiene_valor(record.get('Resolucion')) else ""),
+    ]
+    celdas = []
+    for icono, titulo, hecho, detalle in pasos:
+        color = "#28a745" if hecho else "#8a8a8a"
+        estado = detalle if (hecho and detalle) else ("Listo" if hecho else "Pendiente")
+        celdas.append(
+            f"<div style='flex:1;min-width:110px;text-align:center;padding:8px 4px;"
+            f"border-top:4px solid {color};opacity:{1 if hecho else 0.6};'>"
+            f"<div style='font-size:20px;line-height:1.2;'>{icono}</div>"
+            f"<div style='font-size:12px;font-weight:700;'>{titulo}</div>"
+            f"<div style='font-size:12px;color:{color};font-weight:600;'>{estado}</div>"
+            f"</div>"
+        )
+    return ("<div style='display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px 0;'>"
+            + "".join(celdas) + "</div>")
+
 # --- CABECERA ---
 st.markdown("<h1 style='text-align: center;'>RMA ALTAVISTA SA</h1>", unsafe_allow_html=True)
 
@@ -56,6 +90,9 @@ if busqueda:
         # Filtrar registros que coincidan con Cliente o autonumero
         results = []
         for record in records:
+            # Los tickets anulados desde el panel no se muestran al cliente
+            if es_verdadero(record.get('Anulado')):
+                continue
             cliente = str(record.get('Cliente', '')).upper()
             numero_rma = str(record.get('autonumero', '')).upper()
             
@@ -110,9 +147,8 @@ if busqueda:
                 
                 # Formatear las fechas a DD/MM/YYYY
                 fecha_compra = formatear_fecha_cliente(record.get('Compra'))
-                fecha_resolucion = formatear_fecha_cliente(record.get('Resolucion'))
                 
-                es_finalizado = record.get('Finalizado') in [True, 1, "True", "true", "SI", "Sí"]
+                es_finalizado = es_verdadero(record.get('Finalizado'))
                 
                 if es_finalizado:
                     titulo_ficha = f"Cliente: {record.get('Cliente', 'S/D')} - RMA: {record.get('autonumero', 'S/D')} | [CASO FINALIZADO]"
@@ -124,6 +160,9 @@ if busqueda:
                     debe_expandir = False
                 
                 with st.expander(titulo_ficha, expanded=debe_expandir):
+                    # Historial del caso con sus fechas (carga, aceptación, recepción, resolución)
+                    st.markdown(historial_html(record), unsafe_allow_html=True)
+
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown(f"**Producto:** {record.get('Producto', 'N/A')}")
@@ -132,17 +171,9 @@ if busqueda:
                             st.markdown(f"**Compra:** :red[{fecha_compra}]")
                         else:
                             st.markdown(f"**Compra:** {fecha_compra}")
-                        st.markdown(f"**Ingreso:** {record.get('Ingreso', 'N/A')}")
                     
                     with col2:
-                        aceptado_icon = "✅" if record.get('Aceptado') else "❌"
-                        st.markdown(f"**Aceptado:** {aceptado_icon}")
                         st.markdown(f"**Estado del RMA:** {record.get('Estado del RMA', 'N/A')}")
-                        
-                        if es_finalizado:
-                            st.markdown(f"**Resolución:** :red[{fecha_resolucion}]")
-                        else:
-                            st.markdown(f"**Resolución:** {fecha_resolucion}")
                         
                         comentario_texto = record.get('comentario', '')
                         if comentario_texto and str(comentario_texto).strip() not in ["None", "none", "nan", "NaN", ""]:
