@@ -960,7 +960,7 @@ def tabla_2():
                 "🔢 Nº RMA":           "autonumero",
                 "👤 Cliente":           "Cliente",
                 "📦 Producto":          "Producto",
-                "📅 Fecha de ingreso":  "Ingreso",
+                "📅 Fecha de carga":    "Ingreso",
             }
             col_ord, col_cnt, _ = st.columns([2, 2, 4])
             orden_label = col_ord.selectbox(
@@ -996,6 +996,11 @@ def tabla_2():
             .badge-rojo     { background:#dc3545; color:#fff; }
             .badge-gris     { background:#6c757d; color:#fff; }
             .badge-violeta  { background:#6f42c1; color:#fff; }
+        /* Fechas CARGA / INGRESO bajo el checkbox Recibido: dos columnas alineadas */
+        .rma-fechas { display:grid; grid-template-columns: 1fr 1fr; gap:4px 12px;
+                      font-size:13px; line-height:1.3; margin-top:-6px; }
+        .rma-fechas span { display:block; font-size:10px; font-weight:700;
+                           letter-spacing:.08em; color:#8ba8d0; }
             .badge-pendiente{ background:#444; color:#ccc; }
             .rma-sep { color:#555; }
 
@@ -1072,8 +1077,6 @@ def tabla_2():
                     f'<span>📦 {row["Producto"]}</span>'
                     f'<span class="rma-sep">|</span>'
                     f'{badge_estado(row["Estado del RMA"])}'
-                    f'<span class="rma-sep" style="margin-left:auto;font-size:11px;color:#666;">'
-                    f'📅 {row["Ingreso"]}</span>'
                     f'</div>'
                 )
 
@@ -1082,14 +1085,24 @@ def tabla_2():
 
                 with st.expander(f"#{row['autonumero']}  {row['Cliente']}  —  {row['Producto']}{'  📎' if (str(row.get('Foto1','')).strip() or str(row.get('Foto2','')).strip()) else ''}", expanded=False, key=f"t2card_{tono}_{rn}"):
                     # Encabezado + checkbox "Recibido" arriba a la derecha (se guarda al tildar)
-                    c_head, c_chk = st.columns([4, 1], gap="small", vertical_alignment="center")
+                    c_head, c_chk = st.columns([3, 2], gap="small", vertical_alignment="center")
                     c_head.markdown(header_html, unsafe_allow_html=True)
                     c_chk.checkbox(
                         "📦 Recibido", key=key_rec,
                         on_change=_toggle_recibido, args=(rn, key_rec)
                     )
-                    if row.get('Recibido') and str(row.get('FechaRecibido', '')).strip():
-                        c_chk.caption(f"el {formatear_para_leer(row['FechaRecibido'])}")
+                    # CARGA = cuándo el cliente cargó el ticket (columna Ingreso, la pone el formulario)
+                    # INGRESO = cuándo llegó el producto (FechaRecibido, se pone al tildar Recibido)
+                    fecha_carga = row.get('Ingreso', '') or '—'
+                    fecha_ingreso = (formatear_para_leer(row.get('FechaRecibido', ''))
+                                     if row.get('Recibido') and str(row.get('FechaRecibido', '')).strip() else '—')
+                    c_chk.markdown(
+                        "<div class='rma-fechas'>"
+                        f"<div><span>CARGA</span>{fecha_carga}</div>"
+                        f"<div><span>INGRESO</span>{fecha_ingreso}</div>"
+                        "</div>",
+                        unsafe_allow_html=True
+                    )
                     st.markdown("<hr style='margin:8px 0;border-color:#333;'>", unsafe_allow_html=True)
 
                     # Info de solo lectura
@@ -1098,8 +1111,7 @@ def tabla_2():
                     ci1.markdown(f"**Serial**<br>{row['Serial'] or '—'}", unsafe_allow_html=True)
                     ci2.markdown(f"**Falla**<br>{row['Falla'] or '—'}", unsafe_allow_html=True)
                     ci3, ci4 = st.columns(2)
-                    ci3.markdown(f"**Ingreso**<br>{row['Ingreso'] or '—'}", unsafe_allow_html=True)
-                    ci4.markdown(f"**Compra**<br>{row['Compra'] or '—'}", unsafe_allow_html=True)
+                    ci3.markdown(f"**Compra**<br>{row['Compra'] or '—'}", unsafe_allow_html=True)
 
                     # --- Fotos adjuntas por el cliente (si las hay) ---
                     foto1_val = str(row.get('Foto1', '')).strip()
@@ -1160,11 +1172,6 @@ def tabla_2():
                                 value=str(row.get('comentario', '')),
                                 key=f"com_{rn}"
                             )
-                            nuevo_ingreso = fe3.text_input(
-                                "📅 Fecha Ingreso (dd/mm/aaaa)",
-                                value=str(row.get('Ingreso', '')),
-                                key=f"ing_{rn}"
-                            )
                             nuevo_finalizado = fe4.checkbox(
                                 "✅ Finalizar ticket",
                                 value=False,
@@ -1179,7 +1186,6 @@ def tabla_2():
                             nuevo_diag = row.get('diagnostico', '')
                             nuevo_estado = row.get('Estado del RMA', '')
                             nuevo_finalizado = False
-                            nuevo_ingreso = row.get('Ingreso', '')
 
                         if st.form_submit_button("💾 Guardar cambios", use_container_width=True):
                             up = {}
@@ -1190,10 +1196,6 @@ def tabla_2():
                                     up['diagnostico'] = nuevo_diag
                                 if nuevo_estado != str(orig.get('Estado del RMA', '')):
                                     up['Estado del RMA'] = nuevo_estado
-                                if nuevo_ingreso:
-                                    val_f, stt_f = formatear_y_validar_fecha(nuevo_ingreso)
-                                    if stt_f == "OK" and val_f and val_f != orig.get('Ingreso', ''):
-                                        up['Ingreso'] = val_f
 
                             if nuevo_comentario != str(orig.get('comentario', '')):
                                 up['comentario'] = nuevo_comentario
