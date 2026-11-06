@@ -478,7 +478,28 @@ if st.session_state.rol == "admin" or st.session_state.usuario == "edu":
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1: st.link_button("📋 Planilla Base", "https://docs.google.com/spreadsheets/d/1wBkIvtk_KDcPB3Jt1vBcWdVfpRPvzAevX1ooBQ550sI/edit?gid=1082756943#gid=1082756943", use_container_width=True)
     with c2: st.link_button("💻 Github", "https://github.com/FedeASA/consulta-rma", use_container_width=True)
-    with c3: st.link_button("📝 Texto Clientes", "https://docs.google.com/document/d/1URgFPuVsIoR6LX2diAwFR5rWRKYvmmEwvQ7VXuxSnYg", use_container_width=True)
+    with c3:
+        # Herramienta: marcar como recibidos los casos finalizados que no lo están.
+        # No envía mails (los avisos solo salen al tildar "Recibido" a mano en la Tabla 2).
+        def _emparejar_recibidos():
+            dfv = df_visible()
+            pend = dfv[(dfv['Finalizado'] == True) & (dfv['Recibido'] != True)]
+            if pend.empty:
+                st.toast("✅ No hay casos finalizados pendientes de marcar como recibidos.")
+                return
+            ok = guardar_registros([
+                {"row": int(rn_m), "data": {"Recibido": booleano_a_sheets(True)}}
+                for rn_m in pend['row_number']
+            ])
+            st.toast(f"🧹 Se marcaron {len(pend)} casos finalizados como recibidos (sin enviar mails)." if ok
+                     else "❌ No se pudieron marcar todos. Tocá 'Actualizar Datos' y probá de nuevo.")
+        _n_pend = int(((df_all['Finalizado'] == True) & (df_all['Recibido'] != True)).sum())
+        st.button(
+            f"🧹 Emparejar recibidos ({_n_pend})", key="mant_recibidos",
+            use_container_width=True, on_click=_emparejar_recibidos,
+            disabled=(st.session_state.rol != "admin"),
+            help="Marca como recibidos los casos finalizados que no lo están. No envía mails."
+        )
     with c4:
         st.markdown("""
             <div class="menu-dropdown">
@@ -1325,34 +1346,6 @@ tabla_2()
 def tabla_3():
     df_all = df_visible()
     df3 = df_all[(df_all['Aceptado'] == True) & (df_all['Finalizado'] == True)].copy().reset_index(drop=True)
-
-    # --- MANTENIMIENTO (una sola vez): finalizados viejos sin "Recibido" ---
-    # Los casos finalizados antes de existir la columna Recibido se marcan como recibidos
-    # SIN enviar avisos (los avisos solo salen al tildar el checkbox a mano en la Tabla 2).
-    # Este bloque desaparece solo cuando ya no quedan casos pendientes de emparejar.
-    if st.session_state.rol == "admin":
-        pendientes_rec = df3[df3['Recibido'] != True]
-        if not pendientes_rec.empty:
-            with st.container(border=True):
-                m1, m2 = st.columns([3, 1], vertical_alignment="center")
-                m1.markdown(
-                    f"🧹 Hay **{len(pendientes_rec)}** casos finalizados que no figuran como recibidos. "
-                    "Podés marcarlos todos como recibidos de una vez. **No se envía ningún mail.**"
-                )
-                if m2.button("Marcar como recibidos", key="mant_recibidos", type="primary", use_container_width=True):
-                    ok = guardar_registros([
-                        {"row": int(rn_m), "data": {"Recibido": booleano_a_sheets(True)}}
-                        for rn_m in pendientes_rec['row_number']
-                    ])
-                    if ok:
-                        st.session_state['t3_msg_ok'] = f"✅ Se marcaron {len(pendientes_rec)} casos finalizados como recibidos (sin enviar mails)."
-                    else:
-                        st.session_state['t3_msg_error'] = "❌ No se pudieron marcar todos. Tocá 'Actualizar Datos' y probá de nuevo."
-                    st.rerun()
-    if st.session_state.get('t3_msg_ok'):
-        st.success(st.session_state.pop('t3_msg_ok'))
-    if st.session_state.get('t3_msg_error'):
-        st.error(st.session_state.pop('t3_msg_error'))
 
     with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
         if not df3.empty:
