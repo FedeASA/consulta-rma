@@ -1414,10 +1414,10 @@ def tabla_3():
                             use_container_width=True, on_click=_set_ver_todo, args=(True,))
 
             with st.form("f3"):
-                c3_cols = ['autonumero', 'comentario', 'Cliente', 'Producto', 'diagnostico', 'Estado del RMA', 'Resolucion']
+                c3_cols = ['autonumero', 'comentario', 'Cliente', 'Producto', 'Serial', 'diagnostico', 'Estado del RMA', 'Resolucion']
                 st_df3 = df3_filtrado[['row_number'] + c3_cols]
             
-                deshabilitados_t3 = ['autonumero', 'Cliente', 'Producto', 'diagnostico', 'Estado del RMA', 'Resolucion']
+                deshabilitados_t3 = ['autonumero', 'Cliente', 'Producto', 'Serial', 'diagnostico', 'Estado del RMA', 'Resolucion']
             
                 ed3 = st.data_editor(
                     st_df3.style.apply(estilo_filas, axis=1),
