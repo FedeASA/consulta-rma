@@ -1325,6 +1325,35 @@ tabla_2()
 def tabla_3():
     df_all = df_visible()
     df3 = df_all[(df_all['Aceptado'] == True) & (df_all['Finalizado'] == True)].copy().reset_index(drop=True)
+
+    # --- MANTENIMIENTO (una sola vez): finalizados viejos sin "Recibido" ---
+    # Los casos finalizados antes de existir la columna Recibido se marcan como recibidos
+    # SIN enviar avisos (los avisos solo salen al tildar el checkbox a mano en la Tabla 2).
+    # Este bloque desaparece solo cuando ya no quedan casos pendientes de emparejar.
+    if st.session_state.rol == "admin":
+        pendientes_rec = df3[df3['Recibido'] != True]
+        if not pendientes_rec.empty:
+            with st.container(border=True):
+                m1, m2 = st.columns([3, 1], vertical_alignment="center")
+                m1.markdown(
+                    f"🧹 Hay **{len(pendientes_rec)}** casos finalizados que no figuran como recibidos. "
+                    "Podés marcarlos todos como recibidos de una vez. **No se envía ningún mail.**"
+                )
+                if m2.button("Marcar como recibidos", key="mant_recibidos", type="primary", use_container_width=True):
+                    ok = guardar_registros([
+                        {"row": int(rn_m), "data": {"Recibido": booleano_a_sheets(True)}}
+                        for rn_m in pendientes_rec['row_number']
+                    ])
+                    if ok:
+                        st.session_state['t3_msg_ok'] = f"✅ Se marcaron {len(pendientes_rec)} casos finalizados como recibidos (sin enviar mails)."
+                    else:
+                        st.session_state['t3_msg_error'] = "❌ No se pudieron marcar todos. Tocá 'Actualizar Datos' y probá de nuevo."
+                    st.rerun()
+    if st.session_state.get('t3_msg_ok'):
+        st.success(st.session_state.pop('t3_msg_ok'))
+    if st.session_state.get('t3_msg_error'):
+        st.error(st.session_state.pop('t3_msg_error'))
+
     with st.expander("✅ 3. CASOS RESUELTOS (Histórico)"):
         if not df3.empty:
             # --- Por defecto solo los últimos DIAS_HISTORICO días (por fecha de Resolución) ---
