@@ -58,7 +58,10 @@ st.markdown("""
         font-size: 14px !important;
         content: "JPG / PNG solamente";
     }
-    .block-container { padding-top: 2rem; }
+    /* 4.5rem: deja lugar a la barra superior de Streamlit (antes tapaba el botón de consulta) */
+    .block-container { padding-top: 4.5rem; }
+    /* Botón "Consultar estado de mis casos": ancho completo y más alto */
+    .st-key-btn_consulta a { min-height: 3.2rem; font-size: 1.05rem; font-weight: 600; }
     [data-testid="stVerticalBlockBorderControl"] {
         border: 1px solid rgba(49, 51, 63, 0.2);
         border-radius: 0.5rem;
@@ -140,9 +143,9 @@ if 'resumen_rma' not in st.session_state:
     st.session_state.resumen_rma = {}
 
 # --- BOTÓN SUPERIOR: ir a la consulta de casos ---
-_c_vacia, _c_boton = st.columns([3, 2])
-_c_boton.link_button("🔍 Consultar estado de mis casos", "https://rma-altavista.streamlit.app/",
-                     use_container_width=True)
+with st.container(key="btn_consulta"):
+    st.link_button("🔍 Consultar estado de mis casos", "https://rma-altavista.streamlit.app/",
+                   type="primary", use_container_width=True)
 
 # --- CABECERA ---
 st.markdown("<h1 style='text-align: center;'>Solicitud de RMA / DEVOLUCION</h1>", unsafe_allow_html=True)

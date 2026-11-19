@@ -1397,12 +1397,14 @@ def tabla_3():
                 )
 
             # --- Buscador (fuera del form) ---
-            sc1, sc2, sc3, _ = st.columns([2, 2, 2, 2])
+            sc1, sc2, sc3, sc4 = st.columns([2, 2, 2, 2])
             busq_cliente  = sc1.text_input("🔍 Cliente",   key="t3_cli",    placeholder="Buscar cliente...",  label_visibility="collapsed")
             busq_rma      = sc2.text_input("🔍 Nº RMA",    key="t3_rma",    placeholder="Buscar Nº RMA...",   label_visibility="collapsed")
             busq_serial   = sc3.text_input("🔍 Serial",    key="t3_serial", placeholder="Buscar serial...",   label_visibility="collapsed")
+            busq_producto = sc4.text_input("🔍 Producto",  key="t3_prod",   placeholder="Buscar producto o SKU...", label_visibility="collapsed")
 
-            hay_busqueda = bool(busq_cliente.strip() or busq_rma.strip() or busq_serial.strip() or filtro_grupo)
+            hay_busqueda = bool(busq_cliente.strip() or busq_rma.strip() or busq_serial.strip()
+                                or busq_producto.strip() or filtro_grupo)
             # Al buscar se busca en TODO el histórico; sin búsqueda, solo lo reciente (salvo "ver todo")
             if ver_todo or hay_busqueda:
                 df3_filtrado = df3.copy()
@@ -1414,6 +1416,9 @@ def tabla_3():
                 df3_filtrado = df3_filtrado[df3_filtrado['autonumero'].astype(str).str.contains(busq_rma.strip(), case=False, na=False)]
             if busq_serial.strip():
                 df3_filtrado = df3_filtrado[df3_filtrado['Serial'].astype(str).str.contains(busq_serial.strip(), case=False, na=False)]
+            if busq_producto.strip():
+                # "contiene", sin distinguir mayúsculas: sirve para SKU (ej. 102075) o nombre (ej. proyector)
+                df3_filtrado = df3_filtrado[df3_filtrado['Producto'].astype(str).str.contains(busq_producto.strip(), case=False, na=False, regex=False)]
             if filtro_grupo:
                 df3_filtrado = df3_filtrado[df3_filtrado['Estado del RMA'].astype(str).str.strip().str.upper().isin(GRUPOS_ESTADO[filtro_grupo])]
 
