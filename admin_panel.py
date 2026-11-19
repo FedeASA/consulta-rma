@@ -694,8 +694,7 @@ def notificar_recibido(fila, fecha_recibido):
             f"Serial: {serial_num}\n"
             f"Fecha de recepción: {fecha_txt}\n\n"
             f"Nuestro equipo técnico lo va a revisar y le notificaremos por este canal cuando tengamos novedades.\n\n"
-            f"Puede consultar el estado de su caso en:\n"
-            f"https://rma-altavista.streamlit.app/\n\n"
+            f"Puede ver el estado de su caso en https://rma-altavista.streamlit.app/?rma={rma_id}\n\n"
             f"Servicio Técnico: 3433002458\n"
             f"Ventas: 3434469399\n"
             f"Email: federico@altavistasa.com.ar"
@@ -736,7 +735,7 @@ def notificar_recibido(fila, fecha_recibido):
             f"Fecha de recepción: {fecha_txt}\n\n"
             f"--------------------------------------------------\n\n"
             f"Nuestro equipo técnico lo va a revisar y le notificaremos por este canal cuando tengamos novedades.\n\n"
-            f"Puede consultar el estado de su caso en https://rma-altavista.streamlit.app/\n\n"
+            f"Puede ver el estado de su caso en https://rma-altavista.streamlit.app/?rma={rma_id}\n\n"
             f"Recuerde que nos puede contactar en:\n"
             f"WhatsApp: 3433002458\n"
             f"Email: federico@altavistasa.com.ar"
@@ -878,8 +877,7 @@ def tabla_1():
                                     f"Serial: {serial_num}\n"
                                     f"Falla: {falla_desc}\n"
                                     f"Fecha Compra: {fecha_compra_str}\n\n"
-                                    f"Le recomendamos anotar su c\u00f3digo de usuario para consultar el estado en:\n"
-                                    f"https://rma-altavista.streamlit.app/\n\n"
+                                    f"Puede ver el estado de su caso en https://rma-altavista.streamlit.app/?rma={rma_id}\n\n"
                                     f"Cuando tengamos novedades le notificaremos por este canal.\n\n"
                                     f"Servicio T\u00e9cnico: 3433002458\n"
                                     f"Ventas: 3434469399\n"
@@ -924,7 +922,7 @@ def tabla_1():
                                     f"Fecha Compra: {fecha_compra_str}\n"
                                     f"Estado del caso: {estado_rma}\n\n"
                                     f"--------------------------------------------------\n\n"
-                                    f"Le recomendamos anotar su código de usuario para poder consultar el estado de sus casos en el siguiente enlace https://rma-altavista.streamlit.app/\n\n"
+                                    f"Puede ver el estado de su caso en https://rma-altavista.streamlit.app/?rma={rma_id}\n\n"
                                     f"Cuando tengamos novedades le notificaremos por este canal.\n\n"
                                     f"Recuerde que nos puede contactar en:\n"
                                     f"WhatsApp: 3433002458\n"
@@ -1366,18 +1364,37 @@ def tabla_3():
 
             df3['Resolucion'] = df3['Resolucion'].apply(formatear_para_leer)
 
-            # --- Leyenda de colores ---
-            st.markdown("""
-            <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; align-items:center;">
-                <span style="font-size:12px; color:#aaa; margin-right:4px;">Referencias:</span>
-                <span style="background:#28a745; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🟢 Cambio / Crédito</span>
-                <span style="background:#fd7e14; color:black; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🟠 Garantía / Garantía Oficial</span>
-                <span style="background:#17a2b8; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🔵 No falló – Devolver a cliente</span>
-                <span style="background:#dc3545; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🔴 Fuera de garantía / Rechazado</span>
-                <span style="background:#6c757d; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">⚪ Reparado</span>
-                <span style="background:#6f42c1; color:white; padding:3px 12px; border-radius:4px; font-size:12px; font-weight:600;">🟣 Nunca envió</span>
-            </div>
-            """, unsafe_allow_html=True)
+            # --- Leyenda de colores INTERACTIVA: click en una referencia = filtrar por ese grupo ---
+            GRUPOS_ESTADO = {
+                "🟢 Cambio / Crédito":               ["CAMBIO", "CREDITO"],
+                "🟠 Garantía / Garantía Oficial":     ["GARANTIA", "GARANTIA OFICIAL"],
+                "🔵 No falló – Devolver a cliente":   ["NO FALLO - DEVOLVER A CLIENTE"],
+                "🔴 Fuera de garantía / Rechazado":   ["FUERA DE GARANTIA", "RECHAZADO"],
+                "⚪ Reparado":                        ["REPARADO"],
+                "🟣 Nunca envió":                     ["NUNCA ENVIO"],
+            }
+            COLORES_GRUPO = ["#28a745", "#fd7e14", "#17a2b8", "#dc3545", "#6c757d", "#6f42c1"]
+            TEXTO_GRUPO   = ["#fff",    "#000",    "#fff",    "#fff",    "#fff",    "#fff"]
+            css_pills = "".join(
+                f'.st-key-t3_leyenda button:nth-of-type({n + 1}) {{ background:{bg} !important; color:{fg} !important; '
+                f'border:2px solid transparent !important; font-weight:600; }}'
+                for n, (bg, fg) in enumerate(zip(COLORES_GRUPO, TEXTO_GRUPO))
+            )
+            st.markdown(
+                "<style>" + css_pills +
+                # con un filtro activo, las otras referencias se ven atenuadas
+                ".st-key-t3_leyenda:has(button[aria-checked='true']) button[aria-checked='false']"
+                " { opacity:.35; }"
+                ".st-key-t3_leyenda button[aria-checked='true'] { border:2px solid #fff !important; }"
+                ".st-key-t3_leyenda button p { color:inherit !important; }"
+                "</style>",
+                unsafe_allow_html=True
+            )
+            with st.container(key="t3_leyenda"):
+                filtro_grupo = st.pills(
+                    "Referencias (click para filtrar):", list(GRUPOS_ESTADO.keys()),
+                    selection_mode="single", key="t3_filtro_estado"
+                )
 
             # --- Buscador (fuera del form) ---
             sc1, sc2, sc3, _ = st.columns([2, 2, 2, 2])
@@ -1385,7 +1402,7 @@ def tabla_3():
             busq_rma      = sc2.text_input("🔍 Nº RMA",    key="t3_rma",    placeholder="Buscar Nº RMA...",   label_visibility="collapsed")
             busq_serial   = sc3.text_input("🔍 Serial",    key="t3_serial", placeholder="Buscar serial...",   label_visibility="collapsed")
 
-            hay_busqueda = bool(busq_cliente.strip() or busq_rma.strip() or busq_serial.strip())
+            hay_busqueda = bool(busq_cliente.strip() or busq_rma.strip() or busq_serial.strip() or filtro_grupo)
             # Al buscar se busca en TODO el histórico; sin búsqueda, solo lo reciente (salvo "ver todo")
             if ver_todo or hay_busqueda:
                 df3_filtrado = df3.copy()
@@ -1397,10 +1414,13 @@ def tabla_3():
                 df3_filtrado = df3_filtrado[df3_filtrado['autonumero'].astype(str).str.contains(busq_rma.strip(), case=False, na=False)]
             if busq_serial.strip():
                 df3_filtrado = df3_filtrado[df3_filtrado['Serial'].astype(str).str.contains(busq_serial.strip(), case=False, na=False)]
+            if filtro_grupo:
+                df3_filtrado = df3_filtrado[df3_filtrado['Estado del RMA'].astype(str).str.strip().str.upper().isin(GRUPOS_ESTADO[filtro_grupo])]
 
             cap1, cap2 = st.columns([3, 1], vertical_alignment="center")
             if ver_todo or hay_busqueda:
-                cap1.caption(f"Mostrando **{len(df3_filtrado)}** de **{len(df3)}** casos resueltos (histórico completo)")
+                cap1.caption(f"Mostrando **{len(df3_filtrado)}** de **{len(df3)}** casos resueltos (histórico completo)"
+                             + (f" · filtro: {filtro_grupo}" if filtro_grupo else ""))
             else:
                 cap1.caption(f"Mostrando **{len(df3_filtrado)}** casos resueltos en los últimos {DIAS_HISTORICO} días "
                              f"(total histórico: {len(df3)})")

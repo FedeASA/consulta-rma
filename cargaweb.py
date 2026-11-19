@@ -75,7 +75,9 @@ def historial_html(record):
 st.markdown("<h1 style='text-align: center;'>RMA ALTAVISTA SA</h1>", unsafe_allow_html=True)
 
 # --- BARRA DE BÚSQUEDA ---
-entrada_usuario = st.text_input("Ingrese Código de Cliente o Número de RMA:", value="").strip()
+# Si se entra con ?rma=123 (link del mensaje de caso aceptado), la búsqueda arranca sola
+_rma_url = str(st.query_params.get("rma", "")).strip()
+entrada_usuario = st.text_input("Ingrese Código de Cliente o Número de RMA:", value=_rma_url).strip()
 busqueda = entrada_usuario.upper() 
 
 if busqueda:
@@ -194,3 +196,26 @@ if busqueda:
         st.error(f"Error en la consulta: {e}")
 else:
     st.info("Sistema de consulta de RMA. Ingrese sus datos para comenzar.")
+
+# --- IDIOMA: marcar la página como español para que el navegador no ofrezca traducirla ---
+# Streamlit genera <html lang="en">; se corrige desde un componente invisible (mismo origen).
+import streamlit.components.v1 as _components
+_components.html("""
+<script>
+(function () {
+  function marcar(doc) {
+    try {
+      doc.documentElement.lang = "es";
+      doc.documentElement.setAttribute("translate", "no");
+      if (!doc.querySelector('meta[name="google"]')) {
+        var m = doc.createElement("meta");
+        m.name = "google"; m.content = "notranslate";
+        doc.head.appendChild(m);
+      }
+    } catch (e) {}
+  }
+  marcar(window.parent.document);
+  try { marcar(window.top.document); } catch (e) {}
+})();
+</script>
+""", height=0)

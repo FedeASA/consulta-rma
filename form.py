@@ -139,6 +139,11 @@ if 'enviado' not in st.session_state:
 if 'resumen_rma' not in st.session_state:
     st.session_state.resumen_rma = {}
 
+# --- BOTÓN SUPERIOR: ir a la consulta de casos ---
+_c_vacia, _c_boton = st.columns([3, 2])
+_c_boton.link_button("🔍 Consultar estado de mis casos", "https://rma-altavista.streamlit.app/",
+                     use_container_width=True)
+
 # --- CABECERA ---
 st.markdown("<h1 style='text-align: center;'>Solicitud de RMA / DEVOLUCION</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center;'>Recuerde que el producto debe contar su embalaje / blíster o caja. NO SE ACEPTARÁN PRODUCTOS SIN CAJA NI NUMERO DE SERIE.</p>", unsafe_allow_html=True)
@@ -407,3 +412,26 @@ with st.container(border=True):
                     
                 except Exception as e:
                     st.error(f"Error al procesar en Google Sheets: {e}")
+
+# --- IDIOMA: marcar la página como español para que el navegador no ofrezca traducirla ---
+# Streamlit genera <html lang="en">; se corrige desde un componente invisible (mismo origen).
+import streamlit.components.v1 as _components
+_components.html("""
+<script>
+(function () {
+  function marcar(doc) {
+    try {
+      doc.documentElement.lang = "es";
+      doc.documentElement.setAttribute("translate", "no");
+      if (!doc.querySelector('meta[name="google"]')) {
+        var m = doc.createElement("meta");
+        m.name = "google"; m.content = "notranslate";
+        doc.head.appendChild(m);
+      }
+    } catch (e) {}
+  }
+  marcar(window.parent.document);
+  try { marcar(window.top.document); } catch (e) {}
+})();
+</script>
+""", height=0)
